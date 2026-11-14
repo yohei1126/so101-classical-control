@@ -22,9 +22,7 @@ See [docs/development.md](docs/development.md) for details.
 
 ## Repository Layout and Architecture
 
-Source code lives under `src/so101_classical_control/`. Seven of the eight subpackages are currently scaffold stubs, while `sim/` provides the MuJoCo simulation scene (`scene.py`, vendored Menagerie SO-101 assets, and `sponge_paper_scene.xml`). See [docs/architecture.md](docs/architecture.md) for details.
-
-The same application code is intended to run on both a simulation backend and a physical robot backend through a shared interface. This backend interface is tracked under Issue [#4](https://github.com/yohei1126/so101-classical-control/issues/4) and is not implemented yet.
+Source code lives under `src/so101_classical_control/`. Six of the eight subpackages are currently scaffold stubs. The `sim/` subpackage provides the MuJoCo sponge-to-paper scene and a working `SimBackend`. A shared `RobotBackend` interface exists so the same application code can run on sim now and on real later; `RealBackend` is a stub and does not touch hardware. See [docs/architecture.md](docs/architecture.md) for details.
 
 ## Documentation Links
 

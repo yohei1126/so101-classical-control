@@ -43,3 +43,4 @@ Local tests should also run headless.
 The test suite currently contains:
 - `tests/test_import.py` — Import smoke tests for the eight subpackages.
 - `tests/test_sim_scene.py` — Headless scene load, 100-step finite qpos/qvel/qacc check, and headless render test.
+- `tests/test_backend.py` — `RobotBackend`, `SimBackend`, and `RealBackend` tests, covering joint reads, command-and-settle, headless `wrist_cam` rendering, input validation, `step` / `time_s` contracts, use-after-close behavior, and the real stub.

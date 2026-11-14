@@ -11,7 +11,7 @@ This repository contains robot and simulation code for Matsuo Lab Physical AI Ap
 
 - **English only**: All code, docstrings, and documentation in this repository must be in English.
 - **No invented results**: Do not invent numbers, timings, success rates, or experimental results.
-- **Shared backend interface**: The same application code must run on sim and real through a shared backend interface (Issue [#4](https://github.com/yohei1126/so101-classical-control/issues/4); not implemented yet).
+- **Shared backend interface**: Application code must use the shared `RobotBackend` interface. `SimBackend` is the working simulation implementation; `RealBackend` is a stub and must not touch hardware. See [docs/architecture.md](docs/architecture.md) for details.
 - **Headless tests and exact CI commands**: Tests must be headless. CI install, lint, and test commands are:
   - `uv sync --locked`
   - `uv run --frozen ruff check .`
