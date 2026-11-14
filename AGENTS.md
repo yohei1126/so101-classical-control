@@ -16,7 +16,7 @@ This repository contains robot and simulation code for Matsuo Lab Physical AI Ap
   - `uv sync --locked`
   - `uv run --frozen ruff check .`
   - `uv run --frozen pytest`
-  Do not invent other CI flags.
+  Do not invent other CI flags. See [docs/development.md](docs/development.md) for the `mujoco-core` version pin and headless OSMesa configuration.
 - **Vendored asset provenance**: Vendored assets must ship with a PROVENANCE record. Do not add upstream extras such as a CHANGELOG when vendoring.
 - **Workflow changes**: Changes to GitHub Actions workflows count as security PRs and need review.
 - **Course report location**: Course report text and work logs belong in https://github.com/yohei1126/utokyo-ai-courses/tree/main/PhysicalAI-Applied2-202611/report, not in this repository.

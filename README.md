@@ -6,11 +6,7 @@ All code and documentation in this repository are in English.
 
 ## Hardware Summary
 
-The setup uses an SO-101 robot arm (5 DoF + gripper) with two cameras:
-- Top camera fixed to the desk (eye-to-hand, camera-to-base)
-- Wrist camera mounted on the arm (eye-in-hand, AX=XB)
-
-See [docs/hardware.md](docs/hardware.md) for details.
+The setup uses an SO-101 robot arm (5 DoF + gripper) with a top camera and a wrist camera. See [docs/hardware.md](docs/hardware.md) for details.
 
 ## Quickstart
 
@@ -26,7 +22,7 @@ See [docs/development.md](docs/development.md) for details.
 
 ## Repository Layout and Architecture
 
-Source code lives under `src/so101_classical_control/`. The eight subpackages are currently scaffold stubs; see [docs/architecture.md](docs/architecture.md) for details.
+Source code lives under `src/so101_classical_control/`. Seven of the eight subpackages are currently scaffold stubs, while `sim/` provides the MuJoCo simulation scene (`scene.py`, vendored Menagerie SO-101 assets, and `sponge_paper_scene.xml`). See [docs/architecture.md](docs/architecture.md) for details.
 
 The same application code is intended to run on both a simulation backend and a physical robot backend through a shared interface. This backend interface is tracked under Issue [#4](https://github.com/yohei1126/so101-classical-control/issues/4) and is not implemented yet.
 
