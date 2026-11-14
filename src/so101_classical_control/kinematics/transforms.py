@@ -422,7 +422,8 @@ def _axis_from_pi_rotation(rotation: np.ndarray) -> np.ndarray:
         return axis
     for other in range(3):
         if other != index:
-            axis[other] = rotation[index, other] / (2.0 * axis[index])
+            symmetric_part = 0.5 * (rotation[index, other] + rotation[other, index])
+            axis[other] = symmetric_part / (2.0 * axis[index])
     return axis / np.linalg.norm(axis)
 
 
