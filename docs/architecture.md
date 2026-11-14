@@ -4,7 +4,7 @@
 
 All source code is located under `src/so101_classical_control/`. The repository contains eight subpackages:
 
-- `kinematics` — Forward and inverse kinematics for the SO-101 arm.
+- `kinematics` — SO(3)/SE(3) transform utilities; arm forward and inverse kinematics are not implemented yet.
 - `calibration` — Camera, hand-eye, and joint calibration routines.
 - `perception` — Perception utilities such as pose estimation and marker detection.
 - `planning` — Motion and grasp planning interfaces.
@@ -13,7 +13,12 @@ All source code is located under `src/so101_classical_control/`. The repository 
 - `real` — Hardware interfaces for the physical SO-101 arm.
 - `eval` — Evaluation metrics and experiment runners.
 
-Six of the eight subpackages (`kinematics`, `calibration`, `perception`, `planning`, `control`, and `eval`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+Five of the eight subpackages (`calibration`, `perception`, `planning`, `control`, and `eval`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+
+The `kinematics/` subpackage now contains transform utilities rather than being a complete stub:
+- `src/so101_classical_control/kinematics/transforms.py` (re-exported from `kinematics/__init__.py`) provides numpy-based SO(3)/SE(3) helpers: elementary rotations, inverse transforms, composition helpers whose names state whether the increment is expressed in the fixed/world frame (pre-multiplication) or the body/current frame (post-multiplication), and conversions among rotation matrices, unit quaternions in `(w, x, y, z)` order, axis-angle, and RPY. RPY is the Z-Y-X sequence `R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`, and gimbal lock is handled by pinning `roll` to zero and absorbing the remaining freedom into `yaw`.
+- The L02 exercise notebook labels the Z-axis angle "roll" and the X-axis angle "yaw" for the same Z-Y-X sequence. This repository uses the standard convention (roll about X, yaw about Z) and only swaps those two *names*; the multiplication order is unchanged.
+- Forward and inverse kinematics of the arm are still not implemented (Issue [#6](https://github.com/yohei1126/so101-classical-control/issues/6)).
 
 The `sim/` subpackage contains the MuJoCo simulation scene and backend:
 - `scene.py` providing `scene_xml_path()`, which returns the path to the sponge-to-paper MuJoCo scene.

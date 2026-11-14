@@ -1,1 +1,66 @@
-"""Forward and inverse kinematics for the SO-101 arm."""
+"""Kinematics for the SO-101 arm.
+
+This package currently provides SO(3)/SE(3) transform utilities in
+``transforms.py``. Forward and inverse kinematics of the arm are not
+implemented yet (Issue #6).
+"""
+
+from .transforms import (
+    axis_angle_to_rotation,
+    compose_quaternion_body,
+    compose_quaternion_fixed,
+    compose_se3_body,
+    compose_se3_fixed,
+    compose_so3_body,
+    compose_so3_fixed,
+    identity_se3,
+    identity_so3,
+    inverse_quaternion,
+    inverse_se3,
+    inverse_so3,
+    normalize_quaternion,
+    pose,
+    quaternion_to_rotation,
+    rotation_of,
+    rotation_to_axis_angle,
+    rotation_to_quaternion,
+    rotation_to_rpy,
+    rotation_to_zyz,
+    rpy_to_rotation,
+    rx,
+    ry,
+    rz,
+    transform_point,
+    translation_of,
+    zyz_to_rotation,
+)
+
+__all__ = [
+    "axis_angle_to_rotation",
+    "compose_quaternion_body",
+    "compose_quaternion_fixed",
+    "compose_se3_body",
+    "compose_se3_fixed",
+    "compose_so3_body",
+    "compose_so3_fixed",
+    "identity_se3",
+    "identity_so3",
+    "inverse_quaternion",
+    "inverse_se3",
+    "inverse_so3",
+    "normalize_quaternion",
+    "pose",
+    "quaternion_to_rotation",
+    "rotation_of",
+    "rotation_to_axis_angle",
+    "rotation_to_quaternion",
+    "rotation_to_rpy",
+    "rotation_to_zyz",
+    "rpy_to_rotation",
+    "rx",
+    "ry",
+    "rz",
+    "transform_point",
+    "translation_of",
+    "zyz_to_rotation",
+]
