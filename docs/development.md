@@ -44,3 +44,4 @@ The test suite currently contains:
 - `tests/test_import.py` — Import smoke tests for the eight subpackages.
 - `tests/test_sim_scene.py` — Headless scene load, 100-step finite qpos/qvel/qacc check, and headless render test.
 - `tests/test_backend.py` — `RobotBackend`, `SimBackend`, and `RealBackend` tests, covering joint reads, command-and-settle, headless `wrist_cam` rendering, input validation, `step` / `time_s` contracts, use-after-close behavior, and the real stub.
+- `tests/test_transforms.py` — SO(3)/SE(3) transform tests: inverse and composition properties, fixed-frame vs body-frame argument conventions, quaternion / axis-angle / RPY / ZYZ round trips, gimbal-lock behavior, invalid-input validation, and MuJoCo cross-checks of quaternion conventions.
