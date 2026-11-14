@@ -12,12 +12,18 @@
   cleaned version of the `so101_new_calib` model from The Robot Studio's SO-ARM100 repository.
 
 The vendored directory is copied as-is, including `so101.xml`, `assets/*.stl`, `LICENSE`,
-`README.md`, `CHANGELOG.md`, `scene.xml`, `scene_box.xml`, and `so101.png`. Relative mesh paths
+`README.md`, `scene.xml`, `scene_box.xml`, and `so101.png`. Relative mesh paths
 (`meshdir="assets"`) are preserved.
 
 ### Local edits to vendored files
 
-None. `robotstudio_so101/so101.xml` is unmodified.
+The only deviation from the pinned upstream snapshot is the intentional omission of upstream
+`CHANGELOG.md`; it is not vendored. All other vendored files, including `so101.xml` and `README.md`,
+are unmodified.
+
+The vendored `robotstudio_so101/README.md` still contains a relative link to `CHANGELOG.md`, which
+no longer resolves in this repository. This leftover upstream link is expected: use the upstream
+repository for changelog history.
 
 Our scene, `src/so101_classical_control/sim/assets/sponge_paper_scene.xml`, includes
 `robotstudio_so101/so101.xml` and sets its own `<compiler meshdir="robotstudio_so101/assets">`.

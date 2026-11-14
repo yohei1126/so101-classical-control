@@ -35,10 +35,11 @@
         mass="0.02" friction="1 0.02 0.001"/>
     </body>
 
-    <!-- Paper resting on the desk. -->
+    <!-- Paper on the desk. Intentionally fixed (no freejoint, no mass) as the placement target,
+      unlike the sponge. -->
     <body name="paper" pos="0.30 -0.08 0.001">
       <geom name="paper" type="box" size="0.06 0.045 0.001" material="paper_material"
-        mass="0.005" friction="1 0.01 0.0005"/>
+        friction="1 0.01 0.0005"/>
     </body>
   </worldbody>
 </mujoco>

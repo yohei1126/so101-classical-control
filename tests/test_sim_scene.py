@@ -28,10 +28,12 @@ def test_scene_steps() -> None:
     model = _load_scene()
     data = mujoco.MjData(model)
 
-    mujoco.mj_step(model, data)
-    mujoco.mj_step(model, data)
+    for _ in range(100):
+        mujoco.mj_step(model, data)
 
     assert np.all(np.isfinite(data.qpos))
+    assert np.all(np.isfinite(data.qvel))
+    assert np.all(np.isfinite(data.qacc))
 
 
 def test_scene_renders_headless() -> None:
