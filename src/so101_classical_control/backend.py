@@ -16,7 +16,9 @@ import numpy as np
 
 #: Joint names taken verbatim from the vendored SO-101 MJCF.
 #: Hinge positions and targets are expressed in radians; the gripper joint is
-#: included as the sixth entry.
+#: included as the sixth entry.  ``gripper`` is a hinge in radians with range
+#: ``[-0.174533, 1.7453292]``: approximately ``0 rad`` is closed and positive
+#: angles open the moving jaw.
 JOINT_NAMES: Final[tuple[str, ...]] = (
     "shoulder_pan",
     "shoulder_lift",
@@ -48,8 +50,11 @@ class RobotBackend(ABC):
     def command_joint_targets(self, targets: Mapping[str, float]) -> None:
         """Command joint position targets in radians, keyed by joint name.
 
-        ``targets`` may contain any subset of :data:`JOINT_NAMES`; unknown names
-        must raise an exception rather than being silently ignored.
+        ``targets`` may contain any subset of :data:`JOINT_NAMES`; joints omitted
+        from the mapping keep their current target.  Unknown names raise
+        ``KeyError``.  Non-finite values and values outside the actuator
+        ``ctrlrange`` raise ``ValueError``; out-of-range targets are rejected,
+        never silently clipped.
         """
 
     @abstractmethod
@@ -62,7 +67,12 @@ class RobotBackend(ABC):
 
     @abstractmethod
     def step(self, duration_s: float) -> None:
-        """Advance the simulation or robot by ``duration_s`` seconds."""
+        """Advance the simulation or robot by ``duration_s`` seconds.
+
+        ``duration_s`` must be finite and non-negative.  ``duration_s == 0`` is
+        a no-op that does not advance time; negative or non-finite values raise
+        ``ValueError``.
+        """
 
     @abstractmethod
     def close(self) -> None:

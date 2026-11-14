@@ -53,8 +53,13 @@ class SimBackend(RobotBackend):
             if camera_name is not None:
                 self._camera_id[camera_name] = camera_id
 
+        # Populate derived quantities (Cartesian poses of cameras, geoms, and
+        # lights) so they are valid before the first ``step`` call.
+        mujoco.mj_forward(self._model, self._data)
+
     @property
     def time_s(self) -> float:
+        self._ensure_open()
         return float(self._data.time)
 
     def read_joint_positions(self) -> dict[str, float]:
@@ -63,6 +68,9 @@ class SimBackend(RobotBackend):
 
     def command_joint_targets(self, targets: Mapping[str, float]) -> None:
         self._ensure_open()
+        # Validate every entry before writing any of them, so a bad entry in the
+        # mapping never leaves ``ctrl`` partially updated.
+        validated: dict[int, float] = {}
         for name, value in targets.items():
             if name not in self._ctrl_id:
                 raise KeyError(
@@ -71,7 +79,17 @@ class SimBackend(RobotBackend):
             value = float(value)
             if not np.isfinite(value):
                 raise ValueError(f"target for {name!r} must be finite, got {value!r}")
-            self._data.ctrl[self._ctrl_id[name]] = value
+            ctrl_id = self._ctrl_id[name]
+            low, high = (float(bound) for bound in self._model.actuator_ctrlrange[ctrl_id])
+            if not low <= value <= high:
+                raise ValueError(
+                    f"target for {name!r} is outside the actuator ctrlrange "
+                    f"[{low}, {high}]: {value!r}"
+                )
+            validated[ctrl_id] = value
+
+        for ctrl_id, value in validated.items():
+            self._data.ctrl[ctrl_id] = value
 
     def get_camera_image(self, camera: str) -> np.ndarray:
         self._ensure_open()
@@ -91,11 +109,20 @@ class SimBackend(RobotBackend):
         return self._renderer.render().copy()
 
     def step(self, duration_s: float) -> None:
-        """Advance physics by ``duration_s`` seconds (at least one step)."""
+        """Advance physics by ``duration_s`` seconds.
+
+        ``step(0)`` is a no-op: physics and ``time_s`` do not advance.  Negative
+        or non-finite durations raise ``ValueError``.
+        """
         self._ensure_open()
+        duration_s = float(duration_s)
+        if not np.isfinite(duration_s):
+            raise ValueError(f"duration_s must be finite, got {duration_s!r}")
         if duration_s < 0:
             raise ValueError(f"duration_s must be non-negative, got {duration_s!r}")
-        n_steps = max(1, round(duration_s / float(self._model.opt.timestep)))
+        if duration_s == 0:
+            return
+        n_steps = round(duration_s / float(self._model.opt.timestep))
         for _ in range(n_steps):
             mujoco.mj_step(self._model, self._data)
 
