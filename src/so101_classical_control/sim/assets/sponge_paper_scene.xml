@@ -1,0 +1,44 @@
+<mujoco model="so101_sponge_paper">
+  <include file="robotstudio_so101/so101.xml"/>
+  <compiler angle="radian" meshdir="robotstudio_so101/assets" autolimits="true"/>
+
+  <statistic center="0.15 0 0.15" extent="0.5"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.25 0.25 0.25" specular="0 0 0"/>
+    <global azimuth="160" elevation="-20"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="desk_texture" builtin="checker" mark="edge" rgb1="0.55 0.40 0.28"
+      rgb2="0.48 0.34 0.23" markrgb="0.6 0.5 0.4" width="300" height="300"/>
+    <material name="desk_material" texture="desk_texture" texuniform="true" texrepeat="2 2"
+      reflectance="0.1"/>
+    <material name="sponge_material" rgba="0.95 0.75 0.10 1"/>
+    <material name="paper_material" rgba="0.95 0.95 0.92 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0.2 0 1.5" dir="0 0 -1" directional="true"/>
+
+    <!-- Desk. The top surface is at z = 0, the height of the robot base. -->
+    <body name="desk" pos="0.15 0 -0.02">
+      <geom name="desk" type="box" size="0.45 0.35 0.02" material="desk_material"
+        friction="1 0.005 0.0001"/>
+    </body>
+
+    <!-- Sponge resting on the desk, in front of the arm. -->
+    <body name="sponge" pos="0.30 0.08 0.015">
+      <freejoint name="sponge_free"/>
+      <geom name="sponge" type="box" size="0.045 0.03 0.015" material="sponge_material"
+        mass="0.02" friction="1 0.02 0.001"/>
+    </body>
+
+    <!-- Paper resting on the desk. -->
+    <body name="paper" pos="0.30 -0.08 0.001">
+      <geom name="paper" type="box" size="0.06 0.045 0.001" material="paper_material"
+        mass="0.005" friction="1 0.01 0.0005"/>
+    </body>
+  </worldbody>
+</mujoco>
