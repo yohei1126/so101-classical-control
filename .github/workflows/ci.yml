@@ -28,8 +28,13 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Install headless rendering support
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libosmesa6
+
       - name: Lint
         run: uv run --frozen ruff check .
 
       - name: Test
         run: uv run --frozen pytest
+        env:
+          MUJOCO_GL: osmesa
