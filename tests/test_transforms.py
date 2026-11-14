@@ -241,6 +241,27 @@ def test_axis_angle_at_pi_does_not_raise() -> None:
         )
 
 
+def test_axis_angle_at_pi_with_mixed_sign_y_axis() -> None:
+    """At pi the axis comes from the symmetric part even for a mixed-sign axis.
+
+    The largest component of this axis is Y, and the recovered axis follows the
+    module's conventional sign (first nonzero component positive).
+    """
+    axis = np.array([-0.3, 0.8, -0.5])
+    axis = axis / np.linalg.norm(axis)
+    assert np.argmax(np.abs(axis)) == 1
+
+    rotation = tf.axis_angle_to_rotation(axis, np.pi)
+    recovered_axis, recovered_angle = tf.rotation_to_axis_angle(rotation)
+
+    assert np.isclose(recovered_angle, np.pi, atol=1e-12)
+    first_nonzero = recovered_axis[np.flatnonzero(recovered_axis != 0.0)[0]]
+    assert first_nonzero > 0.0
+    np.testing.assert_allclose(
+        tf.axis_angle_to_rotation(recovered_axis, recovered_angle), rotation, atol=1e-9
+    )
+
+
 def test_axis_angle_zero_uses_conventional_axis() -> None:
     axis, angle = tf.rotation_to_axis_angle(tf.identity_so3())
     np.testing.assert_allclose(axis, [1.0, 0.0, 0.0], atol=0.0)

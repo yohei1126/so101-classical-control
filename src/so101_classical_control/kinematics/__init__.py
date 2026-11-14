@@ -1,10 +1,24 @@
 """Kinematics for the SO-101 arm.
 
-This package currently provides SO(3)/SE(3) transform utilities in
-``transforms.py``. Forward and inverse kinematics of the arm are not
-implemented yet (Issue #6).
+This package provides two things:
+
+- ``transforms.py``: numpy SO(3)/SE(3) transform utilities.
+- ``dh.py``: standard (classical) Denavit-Hartenberg forward kinematics of the
+  five-joint arm, with the ``gripperframe`` site as the end effector, checked
+  against the vendored MuJoCo model in the tests.
+
+Arm forward kinematics is implemented. Inverse kinematics is not implemented
+yet (later phase).
 """
 
+from .dh import (
+    ARM_JOINT_NAMES,
+    SO101_DH_PARAMS,
+    SO101_T_BASE_TO_0,
+    SO101_T_N_TO_EE,
+    dh_transform,
+    forward_kinematics,
+)
 from .transforms import (
     axis_angle_to_rotation,
     compose_quaternion_body,
@@ -36,6 +50,10 @@ from .transforms import (
 )
 
 __all__ = [
+    "ARM_JOINT_NAMES",
+    "SO101_DH_PARAMS",
+    "SO101_T_BASE_TO_0",
+    "SO101_T_N_TO_EE",
     "axis_angle_to_rotation",
     "compose_quaternion_body",
     "compose_quaternion_fixed",
@@ -43,6 +61,8 @@ __all__ = [
     "compose_se3_fixed",
     "compose_so3_body",
     "compose_so3_fixed",
+    "dh_transform",
+    "forward_kinematics",
     "identity_se3",
     "identity_so3",
     "inverse_quaternion",
