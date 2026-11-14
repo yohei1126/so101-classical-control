@@ -22,11 +22,12 @@ See [docs/development.md](docs/development.md) for details.
 
 ## Repository Layout and Architecture
 
-Source code lives under `src/so101_classical_control/`. Five of the eight subpackages are currently scaffold stubs; `kinematics/` provides SO(3)/SE(3) transform utilities (inverse, explicit fixed-frame vs body-frame composition, and quaternion / axis-angle / RPY conversions), though arm forward and inverse kinematics are not implemented yet. The `sim/` subpackage provides the MuJoCo sponge-to-paper scene and a working `SimBackend`. A shared `RobotBackend` interface exists so the same application code can run on sim now and on real later; `RealBackend` is a stub and does not touch hardware. See [docs/architecture.md](docs/architecture.md) for details.
+Source code lives under `src/so101_classical_control/`. Five of the eight subpackages are currently scaffold stubs; `kinematics/` provides SO(3)/SE(3) transform utilities (inverse, explicit fixed-frame vs body-frame composition, and quaternion / axis-angle / RPY conversions) and standard-DH forward kinematics for the five-joint arm, checked against the MuJoCo `gripperframe` site. Arm inverse kinematics is not implemented yet. The `sim/` subpackage provides the MuJoCo sponge-to-paper scene and a working `SimBackend`. A shared `RobotBackend` interface exists so the same application code can run on sim now and on real later; `RealBackend` is a stub and does not touch hardware. See [docs/architecture.md](docs/architecture.md) for details.
 
 ## Documentation Links
 
 - [docs/architecture.md](docs/architecture.md) — Package layout and backend design
+- [docs/kinematics.md](docs/kinematics.md) — DH forward kinematics: convention, table, and geometry notes
 - [docs/hardware.md](docs/hardware.md) — Robot and camera configuration
 - [docs/development.md](docs/development.md) — Setup, linting, and testing
 - [docs/roadmap.md](docs/roadmap.md) — Phase plan and active issue tracking

@@ -24,6 +24,7 @@ This repository contains robot and simulation code for Matsuo Lab Physical AI Ap
 ## Documentation Pointers
 
 - [docs/architecture.md](docs/architecture.md) — Module layout and backend design
+- [docs/kinematics.md](docs/kinematics.md) — DH forward kinematics: convention, table, and geometry notes
 - [docs/hardware.md](docs/hardware.md) — Hardware summary and camera configurations
 - [docs/development.md](docs/development.md) — Environment, lint, and test details
 - [docs/roadmap.md](docs/roadmap.md) — Timeline, phase plan, and issue tracking
