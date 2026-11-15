@@ -5,7 +5,7 @@
 All source code is located under `src/so101_classical_control/`. The repository contains eight subpackages:
 
 - `kinematics` — SO(3)/SE(3) transform utilities and DH forward kinematics; arm inverse kinematics is not implemented yet.
-- `calibration` — Camera, hand-eye, and joint calibration routines.
+- `calibration` — Hand-eye `A X = X B` calibration from ground-truth poses; camera and joint calibration routines are not implemented yet.
 - `perception` — Perception utilities such as pose estimation and marker detection.
 - `planning` — Motion and grasp planning interfaces.
 - `control` — Joint-space and task-space control laws.
@@ -13,7 +13,11 @@ All source code is located under `src/so101_classical_control/`. The repository 
 - `real` — Hardware interfaces for the physical SO-101 arm.
 - `eval` — Evaluation metrics and experiment runners.
 
-Five of the eight subpackages (`calibration`, `perception`, `planning`, `control`, and `eval`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+Four of the eight subpackages (`perception`, `planning`, `control`, and `eval`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+
+The `calibration/` subpackage is partially implemented rather than a complete stub:
+- `src/so101_classical_control/calibration/hand_eye.py` (re-exported from `calibration/__init__.py`) provides eye-in-hand hand-eye calibration, solving `A X = X B` for the fixed wrist-camera-to-end-effector transform from pairs of relative motions `A = inv(T_gripperframe_i) @ T_gripperframe_j` and `B = inv(T_wrist_cam_i) @ T_wrist_cam_j`. The rotation comes from the rotation-vector correspondence `log(R_A) = R_X log(R_B)` solved by SVD, and the translation from the stacked linear system of L02 §10.3 solved by least squares. `relative_motion`, `build_motion_pairs`, and `solve_ax_xb` are the public names. The module is numpy only, does not import `mujoco`, and does not process images. See [calibration.md](calibration.md).
+- Joint calibration, and eye-to-hand calibration of the desk-fixed camera, are not implemented.
 
 The `kinematics/` subpackage now contains transform utilities and forward kinematics rather than being a complete stub:
 - `src/so101_classical_control/kinematics/transforms.py` (re-exported from `kinematics/__init__.py`) provides numpy-based SO(3)/SE(3) helpers: elementary rotations, inverse transforms, composition helpers whose names state whether the increment is expressed in the fixed/world frame (pre-multiplication) or the body/current frame (post-multiplication), and conversions among rotation matrices, unit quaternions in `(w, x, y, z)` order, axis-angle, and RPY. RPY is the Z-Y-X sequence `R = Rz(yaw) @ Ry(pitch) @ Rx(roll)`, and gimbal lock is handled by pinning `roll` to zero and absorbing the remaining freedom into `yaw`.
