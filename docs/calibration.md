@@ -1,10 +1,20 @@
-# Hand-Eye Calibration (Eye-in-Hand `A X = X B`)
+# Hand-Eye Calibration
 
-This page describes the wrist-camera hand-eye calibration implemented in
-`src/so101_classical_control/calibration/hand_eye.py` under Issue
-[#8](https://github.com/yohei1126/so101-classical-control/issues/8). It is a
-numpy-only solver: poses come from the MuJoCo backend as ground truth, and no
-image is inspected.
+This page describes the two hand-eye calibrations implemented in this repository
+from ground-truth simulation poses. Both are numpy only, and neither inspects an
+image.
+
+- **Eye-in-hand**, Issue
+  [#8](https://github.com/yohei1126/so101-classical-control/issues/8):
+  `src/so101_classical_control/calibration/hand_eye.py` recovers the fixed
+  wrist-camera-to-end-effector transform from relative motions `A X = X B`. The
+  sections below up to [Test](#test) describe it.
+- **Camera-to-base (eye-to-hand)**, Issue
+  [#9](https://github.com/yohei1126/so101-classical-control/issues/9):
+  `src/so101_classical_control/calibration/eye_to_hand.py` recovers the pose of
+  the desk-fixed `top_cam` in the robot base frame from the closed-loop transform
+  equation, and reuses `solve_ax_xb` as a second estimate. See
+  [Camera-to-Base (Eye-to-Hand) Calibration](#camera-to-base-eye-to-hand-calibration).
 
 ## What is estimated
 
@@ -157,15 +167,173 @@ forms all 276 unordered pairs. It also checks that the ground-truth
 `inv(T_gripperframe) @ T_wrist_cam` is constant across those configurations at
 `1e-6` m / `1e-6` rad, the rigidity claim of Issue #7.
 
+## Camera-to-Base (Eye-to-Hand) Calibration
+
+Source: Issue [#9](https://github.com/yohei1126/so101-classical-control/issues/9),
+plus the L02 material cited below. `top_cam` is the desk-fixed camera that
+[cameras.md](cameras.md) already describes as the eye-to-hand camera. That page's
+**role-level approximation** phrasing still applies: this calibration recovers
+the pose the MuJoCo scene defines, not a measured real-camera pose.
+
+### What is estimated
+
+`T_base_cam` is the transform **from the camera frame to the base frame**: it
+maps points expressed in the camera frame to the robot base (`baseframe`, which
+is also the world frame of this scene). It is the same object as the pose of the
+camera in the base frame, i.e. what `get_camera_pose("top_cam")` returns, and
+that is the ground truth the test compares against. `top_cam` is desk-fixed, so
+`T_base_cam` is constant while the arm moves, as Issue
+[#7](https://github.com/yohei1126/so101-classical-control/issues/7) states.
+
+### Frames
+
+| Frame | What it is |
+| --- | --- |
+| `{base}` | robot base, the `baseframe` site; also the world frame of the scene |
+| `{C}` | desk-fixed `top_cam`, MuJoCo camera convention (looks along `-Z`) |
+| `{M}` | `ee_marker` on the fixed `gripper` body; `T_base_marker = get_site_pose("ee_marker")` |
+| `{E}` | `gripperframe`, the end effector of the forward kinematics |
+
+`{E}` is a documented rigid intermediate only:
+
+```text
+T_base_marker = T_base_gripperframe @ T_gripperframe_marker
+T_gripperframe_marker = inv(T_gripperframe) @ T_ee_marker      constant as the arm moves
+```
+
+The solver uses `{M}` directly; the chain through `{E}` is what makes the marker
+usable at every configuration, and the MuJoCo test re-checks that constancy at
+`1e-6` m / `1e-6` rad.
+
+### Closed-loop transform equation
+
+Source: L02 lecture slides §2.7, the closed-loop transform equation and its
+Example 2.7.1 "Robot Reaching for a Bolt", together with the "transform
+equation" entry of the L02 glossary, in
+`PhysicalAI-Applied2-202611/L02_20261119` of
+[`yohei1126/utokyo-ai-courses`](https://github.com/yohei1126/utokyo-ai-courses).
+
+Two paths from `{base}` to the marker frame are the same transform. At every arm
+configuration:
+
+```text
+T_base_cam @ T_cam_marker = T_base_marker
+T_base_cam = T_base_marker @ inv(T_cam_marker)
+```
+
+The unknown is isolated by multiplying by an inverse transform (a compound
+transformation followed by its inverse), exactly as L02's worked example does.
+One configuration is enough; with many configurations each closed-loop estimate
+must agree with the ground truth and with the others at the stated tolerance. The
+test uses all of them and does not average SE(3) poses, because L02 defines no
+such average.
+
+`T_cam_marker` is the marker pose in the camera frame — the quantity image-based
+marker detection would provide (Issue
+[#20](https://github.com/yohei1126/so101-classical-control/issues/20), not
+implemented). In this noiseless simulation it is formed from ground-truth poses:
+
+```text
+T_cam_marker = inv(T_base_cam_gt) @ T_base_marker
+```
+
+so the closed-loop step is a consistency check of the frame algebra, not an
+independent measurement, exactly as the eye-in-hand test of Issue #8 forms its
+`A` and `B` from ground-truth poses. No marker is detected in an image.
+
+### `A X = X B` with the fixed-frame pairing
+
+The same data give a second, multi-configuration estimate through the existing
+`solve_ax_xb`. For configurations `i` and `j`:
+
+```text
+A = T_base_marker_j @ inv(T_base_marker_i)
+B = T_cam_marker_j  @ inv(T_cam_marker_i)
+X = T_base_cam
+```
+
+Note the product order `T_j @ inv(T_i)`: it is the motion from configuration `i`
+to configuration `j` expressed in the fixed frame. It is **not** the eye-in-hand
+relative motion `inv(T_i) @ T_j` that `build_motion_pairs` and `relative_motion`
+build. Feeding that eye-in-hand pairing to `solve_ax_xb` does not recover
+`T_base_cam`; the synthetic test asserts that it misses both `T_base_cam` and its
+inverse by more than `1e-2` rad on its data. `solve_ax_xb` itself is unchanged and
+keeps its eye-in-hand convention; the camera-to-base pairing lives in
+`build_fixed_frame_motion_pairs` in `eye_to_hand.py`.
+
+### API
+
+```python
+from so101_classical_control.calibration import (
+    build_fixed_frame_motion_pairs,
+    camera_to_base,
+    camera_to_base_per_pose,
+    solve_ax_xb,
+)
+
+x_one = camera_to_base(base_marker, cam_marker)                # one configuration
+estimates = camera_to_base_per_pose(base_markers, cam_markers)  # one per configuration
+a_list, b_list = build_fixed_frame_motion_pairs(base_markers, cam_markers)
+x_est = solve_ax_xb(a_list, b_list)
+```
+
+- `camera_to_base(base_marker, cam_marker)` returns
+  `T_base_marker @ inv(T_cam_marker)` as a `(4, 4)` float64 SE(3) transform.
+- `camera_to_base_per_pose(base_markers, cam_markers)` applies it to matched
+  sequences and returns one estimate per configuration, in input order; none is
+  an average.
+- `build_fixed_frame_motion_pairs(base_markers, cam_markers)` returns `A_list`,
+  `B_list` for all `i < j` pairs using `T_j @ inv(T_i)`.
+- Invalid shapes, non-SE(3) inputs, mismatched lengths, and fewer than two
+  configurations raise `ValueError`.
+
+The module is numpy only, uses `float64`, does not import `mujoco`, and does not
+touch images. Collecting poses belongs to the caller;
+`tests/test_eyetohand_camerabase.py` drives the arm through the public backend
+(`command_joint_targets` plus `step`).
+
+### Test
+
+```bash
+uv run --frozen pytest tests/test_eyetohand_camerabase.py
+```
+
+Tolerances, as stated in the test module docstring:
+
+- synthetic noiseless checks, which run before anything touches MuJoCo: `1e-12`
+  m and `1e-12` rad, with the rotation evaluated by the `arctan2` form;
+- MuJoCo ground truth (Issue #9): `1e-6` m and `1e-6` rad, the same bounds as the
+  other MuJoCo tests. The rotation error is the angle of `R_est.T @ R_gt`; the
+  test prints the closed-loop and `A X = X B` residuals together with the
+  Frobenius norm, which is never the pass/fail metric.
+
+The synthetic checks cover all three formulas: the closed-loop equation, the
+fixed-frame pairing through `solve_ax_xb`, and the negative check that the
+eye-in-hand pairing does not recover `T_base_cam`. The MuJoCo test uses 24
+configurations — `q = 0`, the documented `VISIBILITY_POSE` from
+`tests/test_sim_cameras.py`, the mid-range pose, and 21 seeded random poses
+(`SEED = 20261114`, `1e-2` rad inside the joint stops) — and forms all 276
+unordered pairs. It also re-checks that `top_cam` is static and that
+`inv(T_gripperframe) @ T_ee_marker` is rigid across those configurations, both at
+`1e-6`.
+
+### Terminology
+
+This section uses L02 wording only: closed-loop transform equation, inverse
+transform, compound transformation, `A X = X B`, axis-angle, eye-to-hand /
+camera-to-base, Ground Truth, and — when describing the reused solver — SVD and
+linear least squares. The **role-level approximation** phrase above is the
+existing one from [cameras.md](cameras.md). This section introduces no eponym for
+the camera-to-base step.
+
 ## Deferred
 
-- Eye-to-hand calibration of the desk-fixed `top_cam` against the base frame is
-  Issue [#9](https://github.com/yohei1126/so101-classical-control/issues/9).
 - The noise-robustness sweep is Issue
   [#10](https://github.com/yohei1126/so101-classical-control/issues/10). Nothing
-  in the current tests injects noise.
+  in the current tests injects noise, in either direction.
 - Image-based marker detection — camera intrinsics `K`, distortion, ArUco,
   `solvePnP`, 640x480 rendering — is deferred to Issue
   [#20](https://github.com/yohei1126/so101-classical-control/issues/20) and is not
-  implemented; `B` comes from ground-truth camera poses, not from pixels.
+  implemented; the camera-side marker poses come from ground-truth poses, not
+  from pixels, in both directions.
 - Joint calibration and real-robot hand-eye calibration are not implemented.
