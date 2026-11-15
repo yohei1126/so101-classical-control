@@ -184,6 +184,10 @@ def test_sim_backend_methods_fail_after_close() -> None:
         _ = backend.time_s
     with pytest.raises(RuntimeError, match="closed"):
         backend.get_camera_image("wrist_cam")
+    with pytest.raises(RuntimeError, match="closed"):
+        backend.get_camera_pose("wrist_cam")
+    with pytest.raises(RuntimeError, match="closed"):
+        backend.get_site_pose("gripperframe")
 
 
 def test_sim_backend_rejects_unknown_camera() -> None:
@@ -210,6 +214,10 @@ def test_real_backend_interface_methods_are_unimplemented() -> None:
         backend.command_joint_targets(REACHABLE_TARGETS)
     with pytest.raises(NotImplementedError):
         backend.get_camera_image("wrist_cam")
+    with pytest.raises(NotImplementedError):
+        backend.get_camera_pose("wrist_cam")
+    with pytest.raises(NotImplementedError):
+        backend.get_site_pose("gripperframe")
     with pytest.raises(NotImplementedError):
         backend.step(0.1)
     with pytest.raises(NotImplementedError):

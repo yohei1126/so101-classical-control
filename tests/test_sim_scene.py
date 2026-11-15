@@ -7,6 +7,9 @@ from so101_classical_control.sim.scene import scene_xml_path
 
 ROBOT_BODIES = ("base", "gripper")
 OBJECT_BODIES = ("desk", "sponge", "paper")
+CAMERAS = ("top_cam", "wrist_cam")
+MARKER_SITES = ("desk_marker", "ee_marker")
+FRAME_SITES = ("baseframe", "gripperframe")
 
 
 def _load_scene() -> mujoco.MjModel:
@@ -22,6 +25,30 @@ def test_scene_contains_robot_and_objects() -> None:
 
     # Five arm joints plus the gripper.
     assert model.nu == 6
+
+
+def test_scene_contains_cameras_and_marker_sites() -> None:
+    model = _load_scene()
+
+    for name in CAMERAS:
+        camera_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, name)
+        assert camera_id != -1, f"missing camera: {name}"
+        assert model.cam_fovy[camera_id] > 0.0, name
+
+    for name in FRAME_SITES + MARKER_SITES:
+        site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name)
+        assert site_id != -1, f"missing site: {name}"
+
+    # ee_marker must hang off the fixed gripper body so the gripper joint
+    # leaves it in place; moving it to the moving jaw would break that.
+    ee_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_marker")
+    assert model.site_bodyid[ee_site_id] == mujoco.mj_name2id(
+        model, mujoco.mjtObj.mjOBJ_BODY, "gripper"
+    )
+
+    # desk_marker sits on the desk top surface (z = 0).
+    desk_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "desk_marker")
+    assert model.site_pos[desk_site_id][2] == 0.0
 
 
 def test_scene_steps() -> None:

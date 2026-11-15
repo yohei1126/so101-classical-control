@@ -1,16 +1,19 @@
 """Kinematics for the SO-101 arm.
 
-This package provides two things:
+This package provides three things:
 
 - ``transforms.py``: numpy SO(3)/SE(3) transform utilities.
 - ``dh.py``: standard (classical) Denavit-Hartenberg forward kinematics of the
   five-joint arm, with the ``gripperframe`` site as the end effector, checked
   against the vendored MuJoCo model in the tests.
+- ``camera_frames.py``: the MuJoCo camera-frame to OpenCV/optical-frame pose
+  conversion. It is numpy only and does not import ``mujoco``.
 
 Arm forward kinematics is implemented. Inverse kinematics is not implemented
 yet (later phase).
 """
 
+from .camera_frames import MUJOCO_TO_OPENCV_ROTATION, mujoco_camera_to_opencv
 from .dh import (
     ARM_JOINT_NAMES,
     SO101_DH_PARAMS,
@@ -51,6 +54,7 @@ from .transforms import (
 
 __all__ = [
     "ARM_JOINT_NAMES",
+    "MUJOCO_TO_OPENCV_ROTATION",
     "SO101_DH_PARAMS",
     "SO101_T_BASE_TO_0",
     "SO101_T_N_TO_EE",
@@ -68,6 +72,7 @@ __all__ = [
     "inverse_quaternion",
     "inverse_se3",
     "inverse_so3",
+    "mujoco_camera_to_opencv",
     "normalize_quaternion",
     "pose",
     "quaternion_to_rotation",
