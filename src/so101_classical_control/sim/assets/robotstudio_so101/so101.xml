@@ -199,6 +199,13 @@
                   pos="-0.0143 0 -0.053"/>
                 <!-- Frame gripperframe -->
                 <site group="3" name="gripperframe" pos="0.012 -0.000218 -0.098127" quat="1 0 1 0"/>
+                <!-- Frame ee_marker (local addition, see assets/PROVENANCE.md).
+                  Marker frame for the eye-to-hand camera-to-base step (Issue #9). It hangs
+                  off the fixed `gripper` body, so the `gripper` joint does not move it.
+                  20 mm along the body's local -X and 50 mm along its local -Z puts it just
+                  off the outer face of the fixed jaw. Orientation is the identity relative
+                  to the `gripper` body; group = 3 matches the other frame sites. -->
+                <site name="ee_marker" pos="-0.020 0 -0.050" quat="1 0 0 0" group="3"/>
                 <!-- Camera mount -->
                 <body name="camera_mount">
                   <camera name="wrist_cam" mode="fixed" pos="-0.00296 0.05436 -0.05310"

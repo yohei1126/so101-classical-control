@@ -30,6 +30,12 @@ class RealBackend(RobotBackend):
     def get_camera_image(self, camera: str) -> np.ndarray:
         raise NotImplementedError("the real SO-101 backend is not implemented yet")
 
+    def get_camera_pose(self, camera: str) -> np.ndarray:
+        raise NotImplementedError("the real SO-101 backend is not implemented yet")
+
+    def get_site_pose(self, site: str) -> np.ndarray:
+        raise NotImplementedError("the real SO-101 backend is not implemented yet")
+
     def step(self, duration_s: float) -> None:
         raise NotImplementedError("the real SO-101 backend is not implemented yet")
 

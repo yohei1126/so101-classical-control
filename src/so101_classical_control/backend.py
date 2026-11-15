@@ -28,6 +28,11 @@ JOINT_NAMES: Final[tuple[str, ...]] = (
     "gripper",
 )
 
+#: Camera names in the shared scene: the desk-fixed ``top_cam`` and the
+#: arm-mounted ``wrist_cam``.  See ``docs/cameras.md`` for their poses and for the
+#: MuJoCo camera-axis convention.
+CAMERA_NAMES: Final[tuple[str, ...]] = ("top_cam", "wrist_cam")
+
 
 class RobotBackend(ABC):
     """Abstract interface for a SO-101 robot backend.
@@ -63,6 +68,36 @@ class RobotBackend(ABC):
 
         The returned array is expected to have shape ``(height, width, 3)`` and
         dtype ``numpy.uint8``.  Unknown camera names must raise an exception.
+        """
+
+    @abstractmethod
+    def get_camera_pose(self, camera: str) -> np.ndarray:
+        """Return the pose of the named camera in the robot base frame.
+
+        The result is a ``(4, 4)`` float64 homogeneous transform from the robot
+        base (the ``baseframe`` site) to the camera frame, in the **MuJoCo
+        camera convention**: the camera looks along its own ``-Z``, with ``+X``
+        to the right of the image and ``+Y`` up in the image.  This is not the
+        OpenCV/optical convention; convert with
+        :func:`so101_classical_control.kinematics.mujoco_camera_to_opencv`.
+
+        Camera names are the entries of :data:`CAMERA_NAMES`; unknown names
+        raise ``KeyError``.  Poses are valid immediately after construction, so
+        the caller does not have to ``step`` first.
+        """
+
+    @abstractmethod
+    def get_site_pose(self, site: str) -> np.ndarray:
+        """Return the pose of the named site in the robot base frame.
+
+        The result is a ``(4, 4)`` float64 homogeneous transform from the robot
+        base (the ``baseframe`` site) to ``site``.  Site frames in the shared
+        scene are ``baseframe``, ``gripperframe``, ``desk_marker``, and
+        ``ee_marker``; ``gripperframe`` is the end effector used by
+        :func:`so101_classical_control.kinematics.forward_kinematics`.
+
+        Unknown site names raise ``KeyError``.  Poses are valid immediately
+        after construction, so the caller does not have to ``step`` first.
         """
 
     @abstractmethod

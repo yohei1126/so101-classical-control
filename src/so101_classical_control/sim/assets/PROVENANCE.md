@@ -19,11 +19,28 @@ The vendored directory is copied as-is, including `so101.xml`, `assets/*.stl`, `
 
 The only deviation from the pinned upstream snapshot is the intentional omission of upstream
 `CHANGELOG.md`; it is not vendored. All other vendored files, including `so101.xml` and `README.md`,
-are unmodified.
+are unmodified, except for the one local addition described below.
 
 The vendored `robotstudio_so101/README.md` still contains a relative link to `CHANGELOG.md`, which
 no longer resolves in this repository. This leftover upstream link is expected: use the upstream
 repository for changelog history.
+
+#### `ee_marker` site in `so101.xml`
+
+Issue #7 added one marker frame site to the vendored `so101.xml`, on the fixed `gripper` body next to
+the existing `gripperframe` site:
+
+```xml
+<site name="ee_marker" pos="-0.020 0 -0.050" quat="1 0 0 0" group="3"/>
+```
+
+- Why it is a local edit: the frame has to sit on the `gripper` body, and a body that has already been
+  pulled in with `<include>` cannot be reopened from the scene file. MuJoCo's `<attach>` attaches a
+  whole child model as a new body hierarchy instead of adding a frame to the existing `gripper`.
+- Scope: one `<site>` element and an XML comment. `wrist_cam`, the meshes, the joints, the geoms, and
+  the existing sites are untouched, so re-vendoring needs only this one addition re-applied.
+- Purpose: the marker frame for the top-camera camera-to-base calibration (Issue #9). It is a frame
+  only: no geometry, no texture, and no detection.
 
 Our scene, `src/so101_classical_control/sim/assets/sponge_paper_scene.xml`, includes
 `robotstudio_so101/so101.xml` and sets its own `<compiler meshdir="robotstudio_so101/assets">`.
@@ -66,7 +83,9 @@ If LeRobot later requires MuJoCo 3.x, this pin will need to be revisited.
 
 `src/so101_classical_control/sim/assets/sponge_paper_scene.xml` is our own scene. It contains the
 SO-101 (included from the vendored model), a desk, a sponge, and a paper. Desk, sponge, and paper are
-given stable body names (`desk`, `sponge`, `paper`) for tests and later tasks.
+given stable body names (`desk`, `sponge`, `paper`) for tests and later tasks. The scene also defines
+the desk-fixed camera `top_cam` and the marker site `desk_marker`; the arm-mounted camera `wrist_cam`
+and the marker site `ee_marker` live in the robot model. See `docs/cameras.md` for their poses.
 
 ## Running the scene test
 

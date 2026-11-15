@@ -9,7 +9,11 @@ import mujoco
 import numpy as np
 
 from so101_classical_control.backend import JOINT_NAMES, RobotBackend
+from so101_classical_control.kinematics.transforms import inverse_se3, pose
 from so101_classical_control.sim.scene import scene_xml_path
+
+#: Site that defines the robot base frame for the pose getters.
+BASE_SITE = "baseframe"
 
 
 class SimBackend(RobotBackend):
@@ -19,6 +23,9 @@ class SimBackend(RobotBackend):
     ``mujoco.MjModel`` and ``mujoco.MjData`` stay private to this class.
     A renderer is created lazily on the first :meth:`get_camera_image` call and
     is released by :meth:`close` (or on context-manager exit).
+    :meth:`get_camera_pose` and :meth:`get_site_pose` return ``(4, 4)`` float64
+    poses in the ``baseframe``, expressed in the MuJoCo camera convention for
+    the former (look along ``-Z``, ``+X`` right, ``+Y`` up).
     """
 
     def __init__(
@@ -53,8 +60,16 @@ class SimBackend(RobotBackend):
             if camera_name is not None:
                 self._camera_id[camera_name] = camera_id
 
-        # Populate derived quantities (Cartesian poses of cameras, geoms, and
-        # lights) so they are valid before the first ``step`` call.
+        self._site_id: dict[str, int] = {}
+        for site_id in range(self._model.nsite):
+            site_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_SITE, site_id)
+            if site_name is not None:
+                self._site_id[site_name] = site_id
+        if BASE_SITE not in self._site_id:
+            raise ValueError(f"scene is missing the base site {BASE_SITE!r}")
+
+        # Populate derived quantities (Cartesian poses of cameras, sites, geoms, and
+        # lights) so the pose getters are valid before the first ``step`` call.
         mujoco.mj_forward(self._model, self._data)
 
     @property
@@ -93,13 +108,7 @@ class SimBackend(RobotBackend):
 
     def get_camera_image(self, camera: str) -> np.ndarray:
         self._ensure_open()
-        try:
-            camera_id = self._camera_id[camera]
-        except KeyError:
-            available = ", ".join(sorted(self._camera_id)) or "none"
-            raise KeyError(
-                f"unknown camera {camera!r}; available cameras: {available}"
-            ) from None
+        camera_id = self._camera_index(camera)
 
         if self._renderer is None:
             self._renderer = mujoco.Renderer(
@@ -107,6 +116,33 @@ class SimBackend(RobotBackend):
             )
         self._renderer.update_scene(self._data, camera=camera_id)
         return self._renderer.render().copy()
+
+    def get_camera_pose(self, camera: str) -> np.ndarray:
+        """Pose of ``camera`` in the ``baseframe``, look along ``-Z`` (MuJoCo)."""
+        self._ensure_open()
+        camera_id = self._camera_index(camera)
+        self._forward()
+        world_pose = pose(
+            self._data.cam_xmat[camera_id].reshape(3, 3),
+            self._data.cam_xpos[camera_id],
+        )
+        return self._in_base_frame(world_pose)
+
+    def get_site_pose(self, site: str) -> np.ndarray:
+        """Pose of ``site`` in the ``baseframe``.
+
+        The site frame is the frame the MJCF ``site`` element defines; for
+        ``gripperframe`` it is the frame
+        :func:`so101_classical_control.kinematics.forward_kinematics` returns.
+        """
+        self._ensure_open()
+        site_id = self._site_index(site)
+        self._forward()
+        world_pose = pose(
+            self._data.site_xmat[site_id].reshape(3, 3),
+            self._data.site_xpos[site_id],
+        )
+        return self._in_base_frame(world_pose)
 
     def step(self, duration_s: float) -> None:
         """Advance physics by ``duration_s`` seconds.
@@ -131,6 +167,43 @@ class SimBackend(RobotBackend):
             self._renderer.close()
             self._renderer = None
         self._closed = True
+
+    def _camera_index(self, camera: str) -> int:
+        """Return the model camera index for ``camera`` or raise ``KeyError``."""
+        try:
+            return self._camera_id[camera]
+        except KeyError:
+            available = ", ".join(sorted(self._camera_id)) or "none"
+            raise KeyError(
+                f"unknown camera {camera!r}; available cameras: {available}"
+            ) from None
+
+    def _site_index(self, site: str) -> int:
+        """Return the model site index for ``site`` or raise ``KeyError``."""
+        try:
+            return self._site_id[site]
+        except KeyError:
+            available = ", ".join(sorted(self._site_id)) or "none"
+            raise KeyError(f"unknown site {site!r}; available sites: {available}") from None
+
+    def _forward(self) -> None:
+        """Refresh derived quantities so poses match ``qpos``.
+
+        ``mj_step`` integrates ``qpos`` after computing the derived positions,
+        so the site and camera frames are one timestep behind the joint
+        positions it leaves behind.  Forwarding here keeps the pose getters
+        consistent with :meth:`read_joint_positions`, and makes them valid
+        before the first ``step`` as well.
+        """
+        mujoco.mj_forward(self._model, self._data)
+
+    def _in_base_frame(self, world_pose: np.ndarray) -> np.ndarray:
+        """Express a world-frame pose in the robot base (``baseframe``) frame."""
+        base_pose = pose(
+            self._data.site_xmat[self._site_id[BASE_SITE]].reshape(3, 3),
+            self._data.site_xpos[self._site_id[BASE_SITE]],
+        )
+        return inverse_se3(base_pose) @ world_pose
 
     def _ensure_open(self) -> None:
         if self._closed:
