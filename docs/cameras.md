@@ -131,6 +131,13 @@ arm can still shift it by a few micrometres indirectly, because the arm position
 servos give up a little angle holding the arm against the reaction torque of the
 moving jaw.
 
+The camera-to-base calibration of Issue
+[#9](https://github.com/yohei1126/so101-classical-control/issues/9) uses this
+frame as the arm-side end of the closed-loop transform equation. It works from
+the ground-truth `get_site_pose("ee_marker")` and `get_camera_pose("top_cam")`
+results only; nothing detects the marker in an image. See
+[calibration.md](calibration.md#camera-to-base-eye-to-hand-calibration).
+
 ## Documented configuration
 
 The visibility checks in `tests/test_sim_cameras.py` use this arm configuration
@@ -157,5 +164,6 @@ detection. What exists now is the geometry they will need: two cameras, two mark
 frames, the pose getters, and the MuJoCo-to-OpenCV frame conversion.
 
 The wrist-camera hand-eye `A X = X B` calibration of Issue #8 works from the
-ground-truth pose getters above and does not look at pixels; see
+ground-truth pose getters above and does not look at pixels; the top-camera
+camera-to-base calibration of Issue #9 does the same. See
 [calibration.md](calibration.md).
