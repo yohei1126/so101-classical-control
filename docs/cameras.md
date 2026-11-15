@@ -109,6 +109,14 @@ clear of both. It is a static frame, because the desk is static. Its orientation
 is the identity relative to the world frame, which the desk shares because it is
 axis-aligned.
 
+The hand-eye calibration implemented in Issue #8 does not detect this marker in
+an image: it uses ground-truth camera poses (`inv(T_wrist_cam_i) @ T_wrist_cam_j`)
+to form the camera-side relative motion. The same matrix is obtained from this
+static marker as `T_cam_marker_i @ inv(T_cam_marker_j)` with
+`T_cam_marker = inv(T_wrist_cam) @ T_desk_marker` (note the product order). The
+site stays available for the image-based version described in
+[calibration.md](calibration.md).
+
 ### `ee_marker` — for Issue #9 (top-camera camera-to-base)
 
 Defined on the fixed `gripper` body in the vendored `so101.xml`, next to the
@@ -147,3 +155,7 @@ intrinsic matrix `K`, no distortion model, no ArUco dictionary or texture, no
 either. Those pieces wait until a lecture covers camera models and marker
 detection. What exists now is the geometry they will need: two cameras, two marker
 frames, the pose getters, and the MuJoCo-to-OpenCV frame conversion.
+
+The wrist-camera hand-eye `A X = X B` calibration of Issue #8 works from the
+ground-truth pose getters above and does not look at pixels; see
+[calibration.md](calibration.md).
