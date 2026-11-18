@@ -73,7 +73,10 @@ Metrics
 The rotation error is the angle of ``R_est.T @ R_gt``, evaluated with the
 well-conditioned ``arctan2`` form of the calibration tests (``arccos`` loses
 about half the digits near zero), and reported in degrees. The translation error
-is the Euclidean norm of the translation difference, in millimetres.
+is the Euclidean norm of the translation difference, in millimetres. The summary
+``p95`` columns are linear-interpolation sample quantiles over the trials of a
+cell (``numpy.percentile`` with its default ``method="linear"``), so they rest on
+the upper few order statistics and are less stable than the medians.
 
 Reproducibility
 ---------------
@@ -92,21 +95,35 @@ and compared with the committed summary.
 Outputs
 -------
 ``results/noise_robustness_trials.csv`` (raw, gitignored),
-``results/noise_robustness_summary.csv`` (committed, small), and
-``results/noise_robustness.png`` (committed). See ``results/README.md`` for the
-policy. Run with::
+``results/noise_robustness_summary.csv`` (committed summary, the source of the
+generated documentation tables), and ``results/noise_robustness.png``
+(committed). The ``results/*`` gitignore rule keeps the raw dump out of version
+control.
 
-    uv run python -m so101_classical_control.eval.noise_robustness \
+Command line
+------------
+Run with no flags to regenerate the committed sweep::
+
+    python -m so101_classical_control.eval.noise_robustness \
         --output-dir results --trials 50 --seed 20261118
 
-``--quick`` without ``--output-dir`` writes to ``results/quick/``, which the
-``results/*`` gitignore rule keeps out of version control.
+``--output-dir`` selects the directory, ``--trials`` the trials per cell
+(default ``TRIALS``), and ``--seed`` the RNG seed (default ``SEED``). ``--quick``
+runs a smoke sweep (``QUICK_TRIALS`` trials, pose counts ``QUICK_POSE_COUNTS``)
+and, without ``--output-dir``, writes to ``results/quick/``; an explicit
+``--output-dir`` always wins.
+
+``--render-docs`` rewrites the generated Markdown block in every file of
+:data:`GENERATED_DOC_TARGETS` from the committed summary CSV, without running the
+sweep. ``--check-docs`` exits ``1`` with a diff when any target block differs
+from the rendered one. Both actions read the CSV only and need no simulation.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import difflib
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -133,10 +150,13 @@ from ..kinematics import (
 )
 from ..sim import SimBackend
 from ..sim.scene import scene_xml_path
+from .render_tables import render_summary_tables, update_generated_block
 
 __all__ = [
+    "COMMITTED_SUMMARY_CSV",
     "CONFIGURATION_COUNT",
     "CONFIGURATION_SEED",
+    "GENERATED_DOC_TARGETS",
     "GroundTruth",
     "LIMIT_MARGIN",
     "MARKER_TRANSLATION_MM_PER_LEVEL",
@@ -153,11 +173,13 @@ __all__ = [
     "TRIAL_CSV_HEADER",
     "VISIBILITY_POSE",
     "average_poses",
+    "check_docs",
     "collect_ground_truth",
     "evaluate_trial",
     "main",
     "perturb_joints",
     "perturb_pose",
+    "render_docs",
     "resolve_output_dir",
     "rotation_error_deg",
     "run",
@@ -196,6 +218,15 @@ QUICK_TRIALS = 5
 QUICK_POSE_COUNTS: Final[tuple[int, ...]] = (6, 24)
 #: Where ``--quick`` writes when ``--output-dir`` is not given.
 QUICK_OUTPUT_DIR: Final[Path] = Path("results") / "quick"
+#: Repository root, derived from this file's location.
+_REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
+#: Committed summary CSV from which the documentation tables are rendered.
+COMMITTED_SUMMARY_CSV: Final[Path] = _REPO_ROOT / "results" / "noise_robustness_summary.csv"
+#: Documents whose generated block is rendered from :data:`COMMITTED_SUMMARY_CSV`.
+GENERATED_DOC_TARGETS: Final[tuple[Path, ...]] = (
+    _REPO_ROOT / "results" / "README.md",
+    _REPO_ROOT / "docs" / "calibration.md",
+)
 
 #: Documented arm configuration, identical to ``tests/test_eyetohand_camerabase.py``.
 #: Joint values in :data:`~so101_classical_control.backend.JOINT_NAMES` order, radians.
@@ -1210,12 +1241,64 @@ def resolve_output_dir(output_dir: str | Path | None, quick: bool) -> str:
     return str(QUICK_OUTPUT_DIR) if quick else "results"
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Run the sweep from the command line and return an exit code."""
+def render_docs(
+    targets: Sequence[Path] = GENERATED_DOC_TARGETS,
+    summary_csv: Path = COMMITTED_SUMMARY_CSV,
+) -> int:
+    """Rewrite each target document's generated block from ``summary_csv``."""
+    block = render_summary_tables(summary_csv)
+    for target in targets:
+        path = Path(target)
+        text = path.read_text(encoding="utf-8")
+        path.write_text(update_generated_block(text, block), encoding="utf-8")
+        print(f"rendered {path}")
+    return 0
+
+
+def check_docs(
+    targets: Sequence[Path] = GENERATED_DOC_TARGETS,
+    summary_csv: Path = COMMITTED_SUMMARY_CSV,
+) -> int:
+    """Return 0 when every generated block is current, else 1 with a diff."""
+    block = render_summary_tables(summary_csv)
+    failed = False
+    for target in targets:
+        path = Path(target)
+        text = path.read_text(encoding="utf-8")
+        expected = update_generated_block(text, block)
+        if expected == text:
+            continue
+        failed = True
+        diff = difflib.unified_diff(
+            text.splitlines(keepends=True),
+            expected.splitlines(keepends=True),
+            fromfile=str(path),
+            tofile=f"{path} (rendered)",
+        )
+        print("".join(diff), end="")
+    if failed:
+        print("generated documentation blocks are stale; run --render-docs")
+        return 1
+    return 0
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    doc_targets: Sequence[Path] | None = None,
+    summary_csv: Path | None = None,
+) -> int:
+    """Run the sweep or the documentation actions and return an exit code.
+
+    ``doc_targets`` and ``summary_csv`` default to :data:`GENERATED_DOC_TARGETS`
+    and :data:`COMMITTED_SUMMARY_CSV`; they are parameters so a test can point
+    ``--check-docs`` at a temporary copy without touching the repository.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Noise-robustness sweep for the eye-in-hand and camera-to-base "
-            "calibrations (Issue #10)."
+            "calibrations (Issue #10). With --render-docs or --check-docs the "
+            "sweep is not run: the generated Markdown tables are rebuilt from "
+            "the committed summary CSV."
         )
     )
     parser.add_argument(
@@ -1243,7 +1326,32 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help=f"short smoke run: {QUICK_TRIALS} trials, pose counts {QUICK_POSE_COUNTS}",
     )
+    documentation = parser.add_mutually_exclusive_group()
+    documentation.add_argument(
+        "--render-docs",
+        action="store_true",
+        help=(
+            "rewrite the generated tables in "
+            f"{', '.join(str(path) for path in GENERATED_DOC_TARGETS)} "
+            "from the committed summary CSV, without running the sweep"
+        ),
+    )
+    documentation.add_argument(
+        "--check-docs",
+        action="store_true",
+        help=(
+            "exit 1 with a diff if any generated documentation table differs "
+            "from the committed summary CSV; run --render-docs to update"
+        ),
+    )
     arguments = parser.parse_args(argv)
+
+    targets = GENERATED_DOC_TARGETS if doc_targets is None else doc_targets
+    summary = COMMITTED_SUMMARY_CSV if summary_csv is None else summary_csv
+    if arguments.render_docs:
+        return render_docs(targets, summary)
+    if arguments.check_docs:
+        return check_docs(targets, summary)
 
     output_dir = resolve_output_dir(arguments.output_dir, arguments.quick)
     if arguments.quick:

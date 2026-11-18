@@ -23,8 +23,12 @@ What is checked
    PNG magic bytes (R8).
 8. Freshness of the committed summary: a subset of the grid is regenerated and
    compared with the matching committed rows (R1).
-9. The ``results/`` gitignore policy.
-10. The review findings R1-R13, each named ``test_r<id>_...``.
+9. Generated documentation: each target embeds exactly the rendered tables, the
+   marker parser rejects bad markers, rendering is deterministic, and
+   ``--check-docs`` returns the documented exit codes.
+10. The ``results/`` gitignore policy.
+11. The review findings, each named ``test_r<id>_...``; R3 is superseded by the
+    byte-for-byte generated-block test.
 
 Tolerances
 ----------
@@ -49,7 +53,9 @@ import pytest
 
 from so101_classical_control.calibration import build_motion_pairs, solve_ax_xb
 from so101_classical_control.eval.noise_robustness import (
+    COMMITTED_SUMMARY_CSV,
     CONFIGURATION_COUNT,
+    GENERATED_DOC_TARGETS,
     METHODS,
     QUICK_OUTPUT_DIR,
     SEED,
@@ -66,6 +72,14 @@ from so101_classical_control.eval.noise_robustness import (
     rotation_error_deg,
     run,
     translation_error_mm,
+)
+from so101_classical_control.eval.render_tables import (
+    CONDITION_CAPTION,
+    MARKER_BEGIN,
+    MARKER_END,
+    METHOD_ORDER,
+    render_summary_tables,
+    update_generated_block,
 )
 from so101_classical_control.kinematics import (
     inverse_se3,
@@ -586,59 +600,51 @@ def test_r2_single_method_not_pooled() -> None:
             assert int(row["trials"]) == TRIALS
 
 
-def test_r3_docs_numbers_match_summary() -> None:
-    """The level-1.0 table in results/README.md matches the committed CSV."""
-    if not COMMITTED_SUMMARY.exists():
+def test_generated_doc_blocks_are_up_to_date() -> None:
+    """Every target document embeds exactly the rendered summary tables."""
+    if not COMMITTED_SUMMARY_CSV.exists():
         pytest.skip("results/noise_robustness_summary.csv is not committed")
-    readme = (RESULTS_DIR / "README.md").read_text(encoding="utf-8")
+    block = render_summary_tables(COMMITTED_SUMMARY_CSV)
+    for target in GENERATED_DOC_TARGETS:
+        text = target.read_text(encoding="utf-8")
+        assert text == update_generated_block(text, block), target
 
-    # The first table under "## Median errors at level 1.0"; stop at the first
-    # blank line so the later level-sweep table is not included.
-    section = readme.split("## Median errors at level 1.0", 1)[1]
-    table_lines: list[str] = []
-    for line in section.splitlines():
-        if line.startswith("|"):
-            table_lines.append(line)
-        elif table_lines:
-            break
-    table_lines = [line for line in table_lines if "`" in line]
-    assert table_lines, "no level-1.0 table rows found in results/README.md"
 
-    _, rows = _read_csv(COMMITTED_SUMMARY)
+def test_update_generated_block_rejects_bad_markers() -> None:
+    """Missing, duplicated, or reversed markers raise ``ValueError``."""
+    valid = f"{MARKER_BEGIN}\nold\n{MARKER_END}\n"
+    with pytest.raises(ValueError):
+        update_generated_block("no markers here", "new")
+    with pytest.raises(ValueError):
+        update_generated_block(valid + valid, "new")
+    with pytest.raises(ValueError):
+        update_generated_block(f"{MARKER_END}\nold\n{MARKER_BEGIN}\n", "new")
 
-    def summary_value(method: str, column: str) -> str:
-        matches = [
-            row
-            for row in rows
-            if row["noise_source"] == "both"
-            and float(row["noise_level"]) == 1.0
-            and row["method"] == method
-            and int(row["cell_pose_count"]) == 24
-        ]
-        assert len(matches) == 1, method
-        return matches[0][column]
 
-    checked = 0
-    for line in table_lines:
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        method = cells[0].strip("`")
-        assert method in METHODS, cells
-        rotation_shown, translation_shown = cells[1], cells[2]
-        digits = len(rotation_shown.split(".")[1])
-        assert digits == len(translation_shown.split(".")[1])
-        expected_rotation = round(float(summary_value(method, "rotation_error_deg_median")), digits)
-        expected_translation = round(
-            float(summary_value(method, "translation_error_mm_median")), digits
-        )
-        assert float(rotation_shown) == pytest.approx(expected_rotation, abs=10.0**-digits), (
-            method,
-            rotation_shown,
-        )
-        assert float(translation_shown) == pytest.approx(
-            expected_translation, abs=10.0**-digits
-        ), (method, translation_shown)
-        checked += 1
-    assert checked == len(METHODS)
+def test_render_is_deterministic() -> None:
+    """Two renders agree and contain every method plus the condition caption."""
+    if not COMMITTED_SUMMARY_CSV.exists():
+        pytest.skip("results/noise_robustness_summary.csv is not committed")
+    first = render_summary_tables(COMMITTED_SUMMARY_CSV)
+    second = render_summary_tables(COMMITTED_SUMMARY_CSV)
+    assert first == second
+    assert CONDITION_CAPTION in first
+    for method in METHOD_ORDER:
+        assert method in first
+
+
+def test_check_docs_cli_exit_codes(tmp_path: Path) -> None:
+    """``--check-docs`` is 0 on the repo and non-zero on a stale temporary copy."""
+    assert main(["--check-docs"]) == 0
+
+    target = tmp_path / "README.md"
+    target.write_text(
+        (RESULTS_DIR / "README.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    stale = target.read_text(encoding="utf-8").replace("N = 24", "N = 25", 1)
+    target.write_text(stale, encoding="utf-8")
+    assert main(["--check-docs"], doc_targets=[target]) != 0
 
 
 def test_r4_quick_defaults_to_results_quick() -> None:
@@ -651,14 +657,12 @@ def test_r4_quick_defaults_to_results_quick() -> None:
 
 
 def test_r5_joint_noise_model_is_documented() -> None:
-    """The module docstring, results README, and calibration docs state the model."""
-    module = (
-        REPO_ROOT / "src" / "so101_classical_control" / "eval" / "noise_robustness.py"
-    ).read_text(encoding="utf-8")
-    readme = (RESULTS_DIR / "README.md").read_text(encoding="utf-8")
-    calibration = (REPO_ROOT / "docs" / "calibration.md").read_text(encoding="utf-8")
-    for document in (module, readme, calibration):
-        assert "encoder" in document.lower(), "joint-noise model is not documented"
+    """The module docstring states the joint-noise (encoder) model."""
+    import so101_classical_control.eval.noise_robustness as module
+
+    docstring = module.__doc__ or ""
+    assert "encoder" in docstring.lower()
+    assert "joint noise" in docstring.lower()
 
 
 def test_r7_trial_rows_unique(tmp_path: Path, ground_truth: GroundTruth) -> None:
@@ -752,10 +756,12 @@ def test_r12_negative_seed_rejected(tmp_path: Path, ground_truth: GroundTruth) -
 
 
 def test_r13_p95_is_documented_as_linear_quantile() -> None:
-    """results/README.md states the p95 quantile rule and its instability."""
+    """The module docstring, and the one README line, define p95."""
+    import so101_classical_control.eval.noise_robustness as module
+
+    assert re.search(r"linear[- ]interpolation", module.__doc__ or "", re.IGNORECASE)
     readme = (RESULTS_DIR / "README.md").read_text(encoding="utf-8")
-    assert re.search(r"linear[- ]interpolation", readme, re.IGNORECASE)
-    assert "median" in readme.lower()
+    assert re.search(r"p95.*linear[- ]interpolation", readme, re.IGNORECASE)
 
 
 # ---------------------------------------------------------------------------
