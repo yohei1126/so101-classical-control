@@ -345,6 +345,14 @@ Level `s` is dimensionless:
 - **marker** rotation noise: `s` degrees per axis;
 - **marker** translation noise: `5 s` millimetres per axis.
 
+Joint angles are **noisy encoder estimates** fed to the DH forward kinematics.
+The arm physically sits at the true configuration: only the reported joint angles
+are perturbed, so the robot-side end-effector pose is the DH estimate of the
+noisy angles. The scene does not move when an encoder is misread, so the camera
+and marker observations are of the **true** poses, plus the marker-detection noise
+above when that channel is switched on. Joint noise therefore enters only through
+the robot-side estimate, and marker noise only through the measured marker pose.
+
 A marker pose `T` is perturbed on the right, `T @ pose(R_delta, t_delta)`, so the
 noise is expressed in the measured frame. A rotation delta is the Rodrigues
 rotation of a rotation vector with iid Gaussian components; the zero vector maps
@@ -370,7 +378,10 @@ joint-noise path is anchored to MuJoCo.
 - `hand_eye_axxb` — wrist eye-in-hand `A X = X B` (Issue #8), with the camera-side
   pose estimated by detecting the static `desk_marker`;
 - `camera_to_base_closed_loop_single` — one configuration of the camera-to-base
-  closed-loop equation (Issue #9);
+  closed-loop equation (Issue #9). In a cell with grid pose count `N` the single
+  configuration is `trial % N`, drawn from within that cell's first `N`
+  configurations, so it is never pooled across pose-count cells; `num_poses` stays
+  `1` and `cell_pose_count` records the grid `N`;
 - `camera_to_base_closed_loop_mean` — the per-pose closed-loop estimates
   aggregated by the chordal L2 mean of the rotations and the arithmetic mean of
   the translations; an aggregate, not a new solver;
@@ -386,11 +397,20 @@ difference in millimetres.
 
 ### Reproducibility
 
-Every cell gets its own generator,
-`np.random.default_rng([seed, source_index, level_index, num_poses, trial])`,
-so a cell is reproducible independently of execution order. A solver
-`ValueError` is recorded as `status="solver_error"` with NaN errors instead of
-aborting the sweep.
+Every cell gets its own generator, seeded with stable tokens rather than
+enumeration indices:
+
+```text
+np.random.default_rng(
+    [seed, SOURCE_TOKENS[source], round(level * 1000), cell_pose_count, trial]
+)
+```
+
+with `SOURCE_TOKENS = {"none": 0, "joint": 1, "marker": 2, "both": 3}`, so a cell
+is reproducible independently of execution order and of which other cells are
+run. A solver `ValueError` is recorded as `status="solver_error"` with NaN errors
+instead of aborting the sweep. The raw per-trial rows are uniquely keyed by
+`(noise_source, noise_level, method, cell_pose_count, trial)`.
 
 ### Command and results policy
 
@@ -399,21 +419,43 @@ uv run python -m so101_classical_control.eval.noise_robustness \
     --output-dir results --trials 50 --seed 20261118
 ```
 
-`--quick` gives a fast smoke run (5 trials, pose counts `(6, 24)`). The default
-run is deterministic given the seed `20261118`. It writes two CSVs and a PNG under
-`results/`: the raw per-trial CSV is regenerated and gitignored, while the
-summary CSV and the PNG are committed. See [../results/README.md](../results/README.md)
-for the column meanings, units, and the measured medians.
+`--quick` gives a fast smoke run (5 trials, pose counts `(6, 24)`). Without
+`--output-dir` it writes to `results/quick/`, which the `results/*` gitignore rule
+keeps out of version control, so a smoke run never overwrites the committed
+artifacts; an explicit `--output-dir` always wins. The default run is
+deterministic given the seed `20261118`. It writes two CSVs and a PNG under
+`results/`: the raw per-trial CSV is regenerated and gitignored, while the summary
+CSV and the PNG are committed. See
+[../results/README.md](../results/README.md) for the column meanings, units, and
+the measured medians.
 
-At source `both`, level `1.0`, pose count `N = 24`, the committed summary gives
-the following median errors (from `results/noise_robustness_summary.csv`):
+At source `both`, level `1.0`, cell pose count `N = 24` for all four methods, the
+committed summary gives the following median errors (from
+`results/noise_robustness_summary.csv`):
 
 | Method | Rotation error (deg) | Translation error (mm) |
 | --- | --- | --- |
-| `hand_eye_axxb` | 0.567 | 2.825 |
-| `camera_to_base_closed_loop_single` | 2.459 | 20.562 |
-| `camera_to_base_closed_loop_mean` | 0.511 | 4.588 |
-| `camera_to_base_axxb` | 0.490 | 4.843 |
+| `hand_eye_axxb` | 0.620 | 3.135 |
+| `camera_to_base_closed_loop_single` | 2.272 | 19.730 |
+| `camera_to_base_closed_loop_mean` | 0.546 | 4.721 |
+| `camera_to_base_axxb` | 0.565 | 4.956 |
+
+The single row is **1 pose per trial, drawn from the 24 configurations, 50
+trials**: one closed-loop estimate from configuration `trial % 24`, not a pooled
+estimate over all 24.
+
+For the same source `both` and cell `N = 24`, the levels `0.25`, `1.0`, and `2.0`
+give:
+
+| Method | Rotation deg (s = 0.25) | Translation mm (s = 0.25) | Rotation deg (s = 1.0) | Translation mm (s = 1.0) | Rotation deg (s = 2.0) | Translation mm (s = 2.0) |
+| --- | --- | --- | --- | --- | --- | --- |
+| `hand_eye_axxb` | 0.144 | 0.793 | 0.620 | 3.135 | 1.111 | 6.056 |
+| `camera_to_base_closed_loop_single` | 0.625 | 5.352 | 2.272 | 19.730 | 4.642 | 39.906 |
+| `camera_to_base_closed_loop_mean` | 0.129 | 1.231 | 0.546 | 4.721 | 1.052 | 10.120 |
+| `camera_to_base_axxb` | 0.129 | 1.236 | 0.565 | 4.956 | 1.076 | 9.007 |
+
+The `p95` columns of the summary CSV are linear-interpolation sample quantiles
+over the 50 trials of a cell and are less stable than the medians.
 
 These are simulation results from MuJoCo ground-truth poses with synthetic
 Gaussian noise, not real-robot measurements.

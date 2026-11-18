@@ -30,6 +30,15 @@ A noise level ``s`` is dimensionless. It scales three independent Gaussians:
 - **marker translation noise**: ``MARKER_TRANSLATION_MM_PER_LEVEL * s``
   millimetres per axis of the measured marker pose.
 
+Joint angles are **noisy encoder estimates** fed to the DH forward kinematics.
+The arm physically sits at the true configuration: only the reported joint
+angles are perturbed, so the end-effector pose the methods use (and therefore the
+``ee_marker`` position they derive from it) is the DH estimate of the noisy
+angles. The camera and marker observations are of the **true** poses — the scene
+does not move when an encoder is misread — plus the marker-detection noise above
+when that channel is switched on. Joint noise therefore enters only through the
+robot-side estimate, and marker noise only through the measured marker pose.
+
 A marker pose ``T`` is perturbed on the right, ``T @ pose(R_delta, t_delta)``, so
 the noise is expressed in the measured frame. Level ``s = 0`` returns the input
 pose unchanged.
@@ -40,7 +49,8 @@ Ground truth
 configurations as the calibration tests and records the reached joint positions
 plus the camera and site poses. It also checks that
 :func:`~so101_classical_control.kinematics.forward_kinematics` reproduces the
-recorded ``gripperframe`` pose, so the joint-noise path is anchored to MuJoCo.
+recorded ``gripperframe`` pose, so the joint-noise path is anchored to MuJoCo,
+and that ``top_cam`` and ``desk_marker`` are static across configurations.
 
 Methods
 -------
@@ -49,7 +59,10 @@ Four estimates are compared against ground truth on the same trial:
 - ``hand_eye_axxb``: wrist eye-in-hand ``A X = X B`` (Issue #8), with the
   camera-side pose estimated from the static ``desk_marker``.
 - ``camera_to_base_closed_loop_single``: one configuration of the camera-to-base
-  closed-loop equation (Issue #9).
+  closed-loop equation (Issue #9). A cell with grid pose count ``N`` draws its
+  single configuration as ``trial % N``, i.e. within that cell's first ``N``
+  configurations, so the method is never pooled across pose-count cells. Its
+  ``num_poses`` column stays ``1`` and ``cell_pose_count`` records the grid ``N``.
 - ``camera_to_base_closed_loop_mean``: the mean of the per-pose closed-loop
   estimates, with the rotation averaged by projection onto SO(3). This is an
   aggregation of existing estimates, not a new solver.
@@ -65,8 +78,16 @@ is the Euclidean norm of the translation difference, in millimetres.
 Reproducibility
 ---------------
 Every ``(noise source, level, pose count, trial)`` cell gets its own generator,
-``np.random.default_rng([seed, source_index, level_index, pose_count, trial])``,
-so a cell is reproducible independently of execution order.
+seeded with stable tokens rather than enumeration indices::
+
+    np.random.default_rng(
+        [seed, SOURCE_TOKENS[source], round(level * 1000), cell_pose_count, trial]
+    )
+
+with :data:`SOURCE_TOKENS` mapping ``none``/``joint``/``marker``/``both`` to
+``0``/``1``/``2``/``3``. A cell's rows are therefore identical whether it is run
+alone or as part of a larger grid, so a subset of the grid can be regenerated
+and compared with the committed summary.
 
 Outputs
 -------
@@ -77,6 +98,9 @@ policy. Run with::
 
     uv run python -m so101_classical_control.eval.noise_robustness \
         --output-dir results --trials 50 --seed 20261118
+
+``--quick`` without ``--output-dir`` writes to ``results/quick/``, which the
+``results/*`` gitignore rule keeps out of version control.
 """
 
 from __future__ import annotations
@@ -120,7 +144,9 @@ __all__ = [
     "NOISE_LEVELS",
     "NOISE_SOURCES",
     "POSE_COUNTS",
+    "QUICK_OUTPUT_DIR",
     "SEED",
+    "SOURCE_TOKENS",
     "SUMMARY_CSV_HEADER",
     "SweepResult",
     "TRIALS",
@@ -132,6 +158,7 @@ __all__ = [
     "main",
     "perturb_joints",
     "perturb_pose",
+    "resolve_output_dir",
     "rotation_error_deg",
     "run",
     "translation_error_mm",
@@ -153,6 +180,8 @@ POSE_COUNTS: Final[tuple[int, ...]] = (6, 12, 24)
 NOISE_LEVELS: Final[tuple[float, ...]] = (0.0, 0.1, 0.25, 0.5, 1.0, 2.0)
 #: Which synthetic noise is switched on; the other one stays at zero.
 NOISE_SOURCES: Final[tuple[str, ...]] = ("joint", "marker", "both")
+#: Stable per-source tokens used in the cell seed, independent of grid order.
+SOURCE_TOKENS: Final[dict[str, int]] = {"none": 0, "joint": 1, "marker": 2, "both": 3}
 #: Marker translation standard deviation per axis, in millimetres per level.
 MARKER_TRANSLATION_MM_PER_LEVEL = 5.0
 #: Method ids used in the ``method`` column, in reporting order.
@@ -165,6 +194,8 @@ METHODS: Final[tuple[str, ...]] = (
 #: ``--quick`` smoke-run parameters.
 QUICK_TRIALS = 5
 QUICK_POSE_COUNTS: Final[tuple[int, ...]] = (6, 24)
+#: Where ``--quick`` writes when ``--output-dir`` is not given.
+QUICK_OUTPUT_DIR: Final[Path] = Path("results") / "quick"
 
 #: Documented arm configuration, identical to ``tests/test_eyetohand_camerabase.py``.
 #: Joint values in :data:`~so101_classical_control.backend.JOINT_NAMES` order, radians.
@@ -180,6 +211,9 @@ VISIBILITY_POSE = {
 #: Bounds used to anchor the joint-noise path to MuJoCo forward kinematics.
 FK_TRANSLATION_TOL = 1e-6  # metres
 FK_ROTATION_TOL = 1e-6  # radians
+#: Bound used to check that the desk-fixed camera and marker do not move.
+STATIC_POSE_TRANSLATION_TOL = 1e-6  # metres
+STATIC_POSE_ROTATION_TOL = 1e-6  # radians
 
 TRIAL_CSV_HEADER: Final[tuple[str, ...]] = (
     "noise_source",
@@ -189,6 +223,7 @@ TRIAL_CSV_HEADER: Final[tuple[str, ...]] = (
     "marker_translation_sigma_mm",
     "method",
     "num_poses",
+    "cell_pose_count",
     "trial",
     "status",
     "rotation_error_deg",
@@ -203,6 +238,7 @@ SUMMARY_CSV_HEADER: Final[tuple[str, ...]] = (
     "marker_translation_sigma_mm",
     "method",
     "num_poses",
+    "cell_pose_count",
     "trials",
     "solver_errors",
     "rotation_error_deg_median",
@@ -242,6 +278,26 @@ class GroundTruth:
 
 
 @dataclass(frozen=True)
+class _PoseView:
+    """Deterministic per-pose-count quantities reused across trials.
+
+    Everything here is a pure function of :class:`GroundTruth` and the pose
+    count ``N``, so recomputing it per trial would only repeat work: the
+    noiseless forward kinematics, the base-frame marker poses it implies, and
+    the two ground-truth marker measurements the noise is applied to.
+    """
+
+    #: Noiseless ``gripperframe`` poses, ``(N, 4, 4)``.
+    hand_poses: tuple[np.ndarray, ...]
+    #: ``hand_pose @ ee_marker_offset``, ``(N, 4, 4)``.
+    base_markers: tuple[np.ndarray, ...]
+    #: ``inv(top_cam) @ ee_marker``, the unperturbed ``T_cam_marker``, ``(N, 4, 4)``.
+    ee_markers_in_cam: tuple[np.ndarray, ...]
+    #: ``inv(wrist_cam) @ desk_marker``, the unperturbed wrist measurement, ``(N, 4, 4)``.
+    desk_markers_in_wrist_cam: tuple[np.ndarray, ...]
+
+
+@dataclass(frozen=True)
 class TrialRow:
     """One row of the raw per-trial CSV."""
 
@@ -252,6 +308,7 @@ class TrialRow:
     marker_translation_sigma_mm: float
     method: str
     num_poses: int
+    cell_pose_count: int
     trial: int
     status: str
     rotation_error_deg: float
@@ -269,6 +326,7 @@ class SummaryRow:
     marker_translation_sigma_mm: float
     method: str
     num_poses: int
+    cell_pose_count: int
     trials: int
     solver_errors: int
     rotation_error_deg_median: float
@@ -296,7 +354,9 @@ class SweepResult:
 def perturb_joints(q: np.ndarray, sigma_rad: float, rng: np.random.Generator) -> np.ndarray:
     """Return ``q`` plus iid ``N(0, sigma_rad)`` noise per arm joint.
 
-    ``sigma_rad == 0`` returns a copy of ``q`` unchanged.
+    This models a noisy encoder estimate: the arm physically sits at ``q``, but
+    the reported angles are perturbed. ``sigma_rad == 0`` returns a copy of ``q``
+    unchanged.
     """
     angles = np.asarray(q, dtype=_DTYPE)
     if sigma_rad == 0.0:
@@ -461,13 +521,16 @@ def collect_ground_truth(
     must reproduce the recorded ``gripperframe`` pose at
     :data:`FK_TRANSLATION_TOL` / :data:`FK_ROTATION_TOL`; otherwise the joint
     noise path would not be anchored to MuJoCo and the function raises
-    ``RuntimeError``.
+    ``RuntimeError``. ``top_cam`` and ``desk_marker`` must additionally be static
+    across configurations within :data:`STATIC_POSE_TRANSLATION_TOL` /
+    :data:`STATIC_POSE_ROTATION_TOL`.
 
     Raises
     ------
     RuntimeError
         If the MuJoCo ``gripperframe`` pose and the DH forward kinematics
-        disagree, or if the scene is missing a joint.
+        disagree, if the desk-fixed camera or marker moves, or if the scene is
+        missing a joint.
     """
     model = mujoco.MjModel.from_xml_path(str(scene_xml_path()))
     configurations = _configurations(model, np.random.default_rng(seed), configuration_count)
@@ -503,6 +566,9 @@ def collect_ground_truth(
             top_cams.append(backend.get_camera_pose("top_cam"))
             desk_markers.append(backend.get_site_pose("desk_marker"))
 
+    _assert_static("top_cam", top_cams)
+    _assert_static("desk_marker", desk_markers)
+
     gripper_array = np.stack(gripper_frames)
     wrist_array = np.stack(wrist_cams)
     ee_array = np.stack(ee_markers)
@@ -519,6 +585,19 @@ def collect_ground_truth(
     )
 
 
+def _assert_static(name: str, poses: Sequence[np.ndarray]) -> None:
+    """Raise ``RuntimeError`` if ``poses`` varies by more than the static bounds."""
+    reference = poses[0]
+    for index, candidate in enumerate(poses[1:], start=1):
+        translation = float(np.linalg.norm(candidate[:3, 3] - reference[:3, 3]))
+        rotation = _rotation_angle_rad(reference, candidate)
+        if translation > STATIC_POSE_TRANSLATION_TOL or rotation > STATIC_POSE_ROTATION_TOL:
+            raise RuntimeError(
+                f"{name} is not static across configurations: configuration {index} moves "
+                f"{translation:.3e} m and {rotation:.3e} rad from configuration 0"
+            )
+
+
 def _rotation_angle_rad(left: np.ndarray, right: np.ndarray) -> float:
     """Return the rotation angle in radians of ``left.R.T @ right.R``."""
     relative = left[:3, :3].T @ right[:3, :3]
@@ -533,6 +612,29 @@ def _rotation_angle_rad(left: np.ndarray, right: np.ndarray) -> float:
     sin_part = 0.5 * float(np.linalg.norm(skew))
     cos_part = 0.5 * (float(np.trace(relative)) - 1.0)
     return float(np.arctan2(sin_part, cos_part))
+
+
+def _build_pose_view(ground_truth: GroundTruth, num_poses: int) -> _PoseView:
+    """Return the deterministic per-pose-count quantities for the first ``N`` poses."""
+    top_cam_inverse = inverse_se3(ground_truth.top_cam)
+    hand_poses: list[np.ndarray] = []
+    base_markers: list[np.ndarray] = []
+    ee_markers_in_cam: list[np.ndarray] = []
+    desk_markers_in_wrist_cam: list[np.ndarray] = []
+    for index in range(num_poses):
+        hand_pose = forward_kinematics(ground_truth.joint_positions[index])
+        hand_poses.append(hand_pose)
+        base_markers.append(hand_pose @ ground_truth.ee_marker_offset)
+        ee_markers_in_cam.append(top_cam_inverse @ ground_truth.ee_markers[index])
+        desk_markers_in_wrist_cam.append(
+            inverse_se3(ground_truth.wrist_cams[index]) @ ground_truth.desk_marker
+        )
+    return _PoseView(
+        hand_poses=tuple(hand_poses),
+        base_markers=tuple(base_markers),
+        ee_markers_in_cam=tuple(ee_markers_in_cam),
+        desk_markers_in_wrist_cam=tuple(desk_markers_in_wrist_cam),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -592,6 +694,8 @@ def evaluate_trial(
     num_poses: int,
     trial: int,
     rng: np.random.Generator,
+    cell_pose_count: int | None = None,
+    view: _PoseView | None = None,
 ) -> list[TrialRow]:
     """Run all four methods once for one noise cell and one trial.
 
@@ -599,7 +703,20 @@ def evaluate_trial(
     ``(noise source, level, pose count, trial)`` cell. The fixed-camera marker
     measurement is shared by the three camera-to-base methods; the wrist-camera
     marker measurement is used only by ``hand_eye_axxb``.
+
+    ``cell_pose_count`` is the grid pose count ``N`` of the cell (default
+    ``num_poses``). It labels the row, and the single-configuration method picks
+    configuration ``trial % cell_pose_count`` within the cell's first ``N``
+    configurations.
+
+    ``view`` optionally supplies the deterministic per-pose-count quantities of
+    :func:`_build_pose_view`; without it they are built here.
     """
+    if cell_pose_count is None:
+        cell_pose_count = num_poses
+    if view is None:
+        view = _build_pose_view(ground_truth, num_poses)
+
     joint_deg, marker_rotation_deg, marker_translation_mm = _noise_sigmas(noise_source, noise_level)
     joint_sigma_rad = float(np.radians(joint_deg))
     marker_rotation_sigma_rad = float(np.radians(marker_rotation_deg))
@@ -611,14 +728,19 @@ def evaluate_trial(
     wrist_cam_estimates: list[np.ndarray] = []
 
     for index in range(num_poses):
-        q_noisy = perturb_joints(ground_truth.joint_positions[index], joint_sigma_rad, rng)
-        hand_pose = forward_kinematics(q_noisy)
+        if joint_sigma_rad == 0.0:
+            hand_pose = view.hand_poses[index]
+            base_marker = view.base_markers[index]
+        else:
+            q_noisy = perturb_joints(ground_truth.joint_positions[index], joint_sigma_rad, rng)
+            hand_pose = forward_kinematics(q_noisy)
+            base_marker = hand_pose @ ground_truth.ee_marker_offset
         hand_poses.append(hand_pose)
-        base_markers.append(hand_pose @ ground_truth.ee_marker_offset)
+        base_markers.append(base_marker)
 
         cam_markers.append(
             perturb_pose(
-                inverse_se3(ground_truth.top_cam) @ ground_truth.ee_markers[index],
+                view.ee_markers_in_cam[index],
                 marker_rotation_sigma_rad,
                 marker_translation_sigma_m,
                 rng,
@@ -626,7 +748,7 @@ def evaluate_trial(
         )
 
         wrist_cam_marker = perturb_pose(
-            inverse_se3(ground_truth.wrist_cams[index]) @ ground_truth.desk_marker,
+            view.desk_markers_in_wrist_cam[index],
             marker_rotation_sigma_rad,
             marker_translation_sigma_m,
             rng,
@@ -649,6 +771,7 @@ def evaluate_trial(
                 marker_translation_sigma_mm=marker_translation_mm,
                 method=method,
                 num_poses=num,
+                cell_pose_count=cell_pose_count,
                 trial=trial,
                 status=status,
                 rotation_error_deg=rotation_deg,
@@ -660,7 +783,7 @@ def evaluate_trial(
     hand_eye_estimate, hand_eye_status = _solver_estimate(a_list, b_list)
     add_row("hand_eye_axxb", num_poses, hand_eye_estimate, hand_eye_status)
 
-    index = trial % num_poses
+    index = trial % cell_pose_count
     single_estimate = camera_to_base(base_markers[index], cam_markers[index])
     add_row("camera_to_base_closed_loop_single", 1, single_estimate, "ok")
 
@@ -687,17 +810,34 @@ def _format_float(value: float) -> str:
 
 
 def _percentile(values: list[float], percentile: float) -> float:
-    """Return a percentile of ``values`` or NaN when there are none."""
+    """Return a percentile of ``values`` or NaN when there are none.
+
+    ``numpy.percentile`` uses linear interpolation between the two nearest
+    order statistics (its default ``method="linear"``), which is what the
+    documented p95 column is.
+    """
     if not values:
         return math.nan
     return float(np.percentile(values, percentile))
 
 
 def _summarize(trial_rows: Sequence[TrialRow]) -> list[SummaryRow]:
-    """Aggregate raw rows into one summary row per cell and method."""
-    groups: dict[tuple[str, float, str, int], list[TrialRow]] = {}
+    """Aggregate raw rows into one summary row per cell and method.
+
+    Groups are keyed by ``(noise_source, noise_level, method, num_poses,
+    cell_pose_count)``; ``cell_pose_count`` keeps
+    ``camera_to_base_closed_loop_single`` rows from different pose-count cells
+    separate even though they all report ``num_poses = 1``.
+    """
+    groups: dict[tuple[str, float, str, int, int], list[TrialRow]] = {}
     for row in trial_rows:
-        key = (row.noise_source, row.noise_level, row.method, row.num_poses)
+        key = (
+            row.noise_source,
+            row.noise_level,
+            row.method,
+            row.num_poses,
+            row.cell_pose_count,
+        )
         groups.setdefault(key, []).append(row)
 
     source_rank = {"none": 0, "joint": 1, "marker": 2, "both": 3}
@@ -707,7 +847,7 @@ def _summarize(trial_rows: Sequence[TrialRow]) -> list[SummaryRow]:
         key=lambda key: (
             source_rank.get(key[0], 99),
             key[1],
-            key[3],
+            key[4],
             method_rank.get(key[2], 99),
         ),
     )
@@ -728,6 +868,7 @@ def _summarize(trial_rows: Sequence[TrialRow]) -> list[SummaryRow]:
                 marker_translation_sigma_mm=first.marker_translation_sigma_mm,
                 method=key[2],
                 num_poses=key[3],
+                cell_pose_count=key[4],
                 trials=len(group),
                 solver_errors=len(group) - len(usable),
                 rotation_error_deg_median=_percentile(rotation_values, 50.0),
@@ -754,6 +895,7 @@ def _write_trial_csv(path: Path, rows: Sequence[TrialRow]) -> None:
                     _format_float(row.marker_translation_sigma_mm),
                     row.method,
                     str(row.num_poses),
+                    str(row.cell_pose_count),
                     str(row.trial),
                     row.status,
                     _format_float(row.rotation_error_deg),
@@ -777,6 +919,7 @@ def _write_summary_csv(path: Path, rows: Sequence[SummaryRow]) -> None:
                     _format_float(row.marker_translation_sigma_mm),
                     row.method,
                     str(row.num_poses),
+                    str(row.cell_pose_count),
                     str(row.trials),
                     str(row.solver_errors),
                     _format_float(row.rotation_error_deg_median),
@@ -796,21 +939,16 @@ def _select_row(
     summary_rows: Sequence[SummaryRow],
     source: str,
     method: str,
-    num_poses: int | None,
+    cell_pose_count: int,
     level: float,
 ) -> SummaryRow | None:
-    """Return the matching summary row.
-
-    ``num_poses=None`` matches any pose count, which the one-configuration
-    ``camera_to_base_closed_loop_single`` method needs because it always reports
-    ``num_poses=1`` rather than the sweep's pose count.
-    """
+    """Return the summary row for one (source, method, cell pose count, level)."""
     for row in summary_rows:
         if (
             row.noise_source == source
             and row.method == method
             and row.noise_level == level
-            and (num_poses is None or row.num_poses == num_poses)
+            and row.cell_pose_count == cell_pose_count
         ):
             return row
     return None
@@ -820,7 +958,7 @@ def _plot_series(
     summary_rows: Sequence[SummaryRow],
     source: str,
     method: str,
-    num_poses: int | None,
+    cell_pose_count: int,
     field: str,
     positive_levels: Sequence[float],
 ) -> tuple[list[float], list[float]]:
@@ -828,7 +966,7 @@ def _plot_series(
     level_values: list[float] = []
     error_values: list[float] = []
     for level in positive_levels:
-        row = _select_row(summary_rows, source, method, num_poses, level)
+        row = _select_row(summary_rows, source, method, cell_pose_count, level)
         if row is None:
             continue
         value = float(getattr(row, field))
@@ -837,13 +975,6 @@ def _plot_series(
         level_values.append(level)
         error_values.append(value)
     return level_values, error_values
-
-
-def _series_poses(method: str, pose_count: int) -> int | None:
-    """Return the pose-count selector for one method and pose count."""
-    if method == "camera_to_base_closed_loop_single":
-        return None
-    return pose_count
 
 
 def _plot_summary(
@@ -857,7 +988,8 @@ def _plot_summary(
     Rows are the median rotation and translation errors, columns the noise
     sources ``joint``, ``marker``, and ``both``. Solid lines use the largest pose
     count, and ``hand_eye_axxb`` at the smallest pose count is dashed. The error
-    axis is logarithmic, so only positive noise levels are drawn.
+    axis is logarithmic, so level ``0`` (errors around ``1e-12``) and any
+    non-finite values are omitted.
     """
     import matplotlib
 
@@ -882,7 +1014,7 @@ def _plot_summary(
                     summary_rows,
                     source,
                     method,
-                    _series_poses(method, solid_count),
+                    solid_count,
                     field,
                     positive_levels,
                 )
@@ -936,24 +1068,14 @@ def _plot_summary(
 # ---------------------------------------------------------------------------
 
 
-def run(
-    output_dir: str | Path = "results",
-    trials: int = TRIALS,
-    seed: int = SEED,
-    pose_counts: Sequence[int] = POSE_COUNTS,
-    noise_levels: Sequence[float] = NOISE_LEVELS,
-) -> SweepResult:
-    """Run the sweep, write the two CSVs and the PNG, and print a summary.
-
-    One generator is created per ``(noise source, level, pose count, trial)``
-    cell, so every cell is reproducible independently of execution order. Level
-    zero is run only once (as ``noise_source="none"``) instead of once per
-    source, because the three sources coincide there.
-
-    Returns the paths and rows behind the written artifacts.
-    """
+def _validate_parameters(
+    trials: int, seed: int, pose_counts: Sequence[int], noise_levels: Sequence[float]
+) -> None:
+    """Raise ``ValueError`` for an invalid sweep parameter set."""
+    if seed < 0:
+        raise ValueError(f"seed must be non-negative, got {seed}")
     if trials < 1:
-        raise ValueError(f"trials must be positive, got {trials}")
+        raise ValueError(f"trials must be at least 1, got {trials}")
     if not pose_counts:
         raise ValueError("pose_counts must not be empty")
     if min(pose_counts) < 2:
@@ -962,20 +1084,59 @@ def run(
         raise ValueError(
             f"pose counts cannot exceed the {CONFIGURATION_COUNT} ground-truth configurations"
         )
+    if not noise_levels:
+        raise ValueError("noise_levels must not be empty")
+
+
+def run(
+    output_dir: str | Path = "results",
+    trials: int = TRIALS,
+    seed: int = SEED,
+    pose_counts: Sequence[int] = POSE_COUNTS,
+    noise_levels: Sequence[float] = NOISE_LEVELS,
+    ground_truth: GroundTruth | None = None,
+) -> SweepResult:
+    """Run the sweep, write the two CSVs and the PNG, and print a summary.
+
+    One generator is created per ``(noise source, level, pose count, trial)``
+    cell from stable seed tokens, so every cell is reproducible independently of
+    execution order and of which other cells are run. Level zero is run only
+    once (as ``noise_source="none"``) instead of once per source, because the
+    three sources coincide there.
+
+    ``ground_truth`` optionally supplies already-collected poses (for example
+    from a session-scoped test fixture) so :func:`collect_ground_truth` is not
+    repeated. The deterministic per-pose-count quantities are computed once per
+    distinct pose count and reused by every trial.
+
+    Returns the paths and rows behind the written artifacts.
+    """
+    _validate_parameters(trials, seed, pose_counts, noise_levels)
 
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    ground_truth = collect_ground_truth(CONFIGURATION_COUNT, CONFIGURATION_SEED)
+    if ground_truth is None:
+        ground_truth = collect_ground_truth(CONFIGURATION_COUNT, CONFIGURATION_SEED)
+
+    views = {num_poses: _build_pose_view(ground_truth, num_poses) for num_poses in pose_counts}
 
     trial_rows: list[TrialRow] = []
-    for source_index, source in enumerate(NOISE_SOURCES):
-        for level_index, level in enumerate(noise_levels):
-            if level == 0.0 and source_index != 0:
+    for source in NOISE_SOURCES:
+        for level in noise_levels:
+            if level == 0.0 and source != NOISE_SOURCES[0]:
                 continue
             source_label = "none" if level == 0.0 else source
             for num_poses in pose_counts:
                 for trial in range(trials):
-                    rng = np.random.default_rng([seed, source_index, level_index, num_poses, trial])
+                    rng = np.random.default_rng(
+                        [
+                            seed,
+                            SOURCE_TOKENS[source_label],
+                            round(level * 1000),
+                            num_poses,
+                            trial,
+                        ]
+                    )
                     trial_rows.extend(
                         evaluate_trial(
                             ground_truth,
@@ -984,6 +1145,8 @@ def run(
                             num_poses,
                             trial,
                             rng,
+                            cell_pose_count=num_poses,
+                            view=views[num_poses],
                         )
                     )
 
@@ -1020,13 +1183,7 @@ def _print_summary(
         f"N={report_poses}, per method (median):"
     )
     for method in METHODS:
-        row = _select_row(
-            summary_rows,
-            "both",
-            method,
-            _series_poses(method, report_poses),
-            report_level,
-        )
+        row = _select_row(summary_rows, "both", method, report_poses, report_level)
         if row is None:
             continue
         print(
@@ -1041,6 +1198,18 @@ def _print_summary(
 # ---------------------------------------------------------------------------
 
 
+def resolve_output_dir(output_dir: str | Path | None, quick: bool) -> str:
+    """Return the output directory for a CLI invocation.
+
+    An explicit ``--output-dir`` always wins. Otherwise ``--quick`` writes to
+    :data:`QUICK_OUTPUT_DIR` (``results/quick``) so a smoke run never overwrites
+    the committed artifacts, and a normal run writes to ``results``.
+    """
+    if output_dir is not None:
+        return str(output_dir)
+    return str(QUICK_OUTPUT_DIR) if quick else "results"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the sweep from the command line and return an exit code."""
     parser = argparse.ArgumentParser(
@@ -1051,8 +1220,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--output-dir",
-        default="results",
-        help="directory for the two CSVs and the PNG (default: results)",
+        default=None,
+        help=(
+            "directory for the two CSVs and the PNG "
+            "(default: results, or results/quick with --quick)"
+        ),
     )
     parser.add_argument(
         "--trials",
@@ -1073,15 +1245,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
 
+    output_dir = resolve_output_dir(arguments.output_dir, arguments.quick)
     if arguments.quick:
         run(
-            arguments.output_dir,
+            output_dir,
             trials=QUICK_TRIALS,
             seed=arguments.seed,
             pose_counts=QUICK_POSE_COUNTS,
         )
     else:
-        run(arguments.output_dir, trials=arguments.trials, seed=arguments.seed)
+        run(output_dir, trials=arguments.trials, seed=arguments.seed)
     return 0
 
 
