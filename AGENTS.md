@@ -27,6 +27,7 @@ This repository contains robot and simulation code for Matsuo Lab Physical AI Ap
 - [docs/kinematics.md](docs/kinematics.md) — DH forward kinematics: convention, table, and geometry notes
 - [docs/cameras.md](docs/cameras.md) — Camera names and poses, marker frames, and the MuJoCo vs OpenCV axis convention
 - [docs/calibration.md](docs/calibration.md) — Hand-eye calibration in both directions from ground-truth sim poses: eye-in-hand `A X = X B` and camera-to-base, with the solver sources and test tolerances
+- [results/README.md](results/README.md) — Noise-robustness sweep artifacts: committed summary CSV and PNG, regenerated raw trials CSV, noise grid, and CSV column meanings
 - [docs/hardware.md](docs/hardware.md) — Hardware summary and camera roles
 - [docs/development.md](docs/development.md) — Environment, lint, and test details
 - [docs/roadmap.md](docs/roadmap.md) — Timeline, phase plan, and issue tracking

@@ -13,7 +13,10 @@ All source code is located under `src/so101_classical_control/`. The repository 
 - `real` — Hardware interfaces for the physical SO-101 arm.
 - `eval` — Evaluation metrics and experiment runners.
 
-Four of the eight subpackages (`perception`, `planning`, `control`, and `eval`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+Three of the eight subpackages (`perception`, `planning`, and `control`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+
+The `eval/` subpackage is no longer a stub:
+- `src/so101_classical_control/eval/noise_robustness.py` is the Issue #10 noise-robustness sweep. It collects ground-truth poses once from `SimBackend`, injects synthetic Gaussian noise on joint angles and marker poses, calls the existing eye-in-hand and camera-to-base solvers unchanged, and writes a raw trials CSV, a committed summary CSV, and a committed PNG under `results/`. It is runnable as `python -m so101_classical_control.eval.noise_robustness`; the package import stays light and `matplotlib` is imported only inside the plotting function. See [calibration.md](calibration.md) and [../results/README.md](../results/README.md).
 
 The `calibration/` subpackage is partially implemented rather than a complete stub:
 - `src/so101_classical_control/calibration/hand_eye.py` (re-exported from `calibration/__init__.py`) provides eye-in-hand hand-eye calibration, solving `A X = X B` for the fixed wrist-camera-to-end-effector transform from pairs of relative motions `A = inv(T_gripperframe_i) @ T_gripperframe_j` and `B = inv(T_wrist_cam_i) @ T_wrist_cam_j`. The rotation comes from the rotation-vector correspondence `log(R_A) = R_X log(R_B)` solved by SVD, and the translation from the stacked linear system of L02 §10.3 solved by least squares. `relative_motion`, `build_motion_pairs`, and `solve_ax_xb` are the public names. The module is numpy only, does not import `mujoco`, and does not process images. See [calibration.md](calibration.md).

@@ -326,11 +326,32 @@ linear least squares. The **role-level approximation** phrase above is the
 existing one from [cameras.md](cameras.md). This section introduces no eponym for
 the camera-to-base step.
 
+## Noise-robustness sweep (#10)
+
+The sweep calls the existing solvers only, with no images and no inverse
+kinematics. See [../results/README.md](../results/README.md) and the module
+`--help` for the grid, noise model, methods, columns, and commands.
+
+<!-- BEGIN generated: noise_robustness tables -->
+Source `both`, cell pose count N = 24, 50 trials per cell; `camera_to_base_closed_loop_single` is 1 pose per trial drawn from the cell's 24 configurations.
+
+| Method | num_poses | median rotation deg | median translation mm | p95 rotation deg | p95 translation mm |
+| --- | --- | --- | --- | --- | --- |
+| `hand_eye_axxb` | 24 | 0.62 | 3.14 | 0.977 | 5.1 |
+| `camera_to_base_closed_loop_single` | 1 | 2.27 | 19.7 | 4.4 | 42.9 |
+| `camera_to_base_closed_loop_mean` | 24 | 0.546 | 4.72 | 0.885 | 7.66 |
+| `camera_to_base_axxb` | 24 | 0.565 | 4.96 | 0.938 | 8.07 |
+
+| Method | rot / trans (s=0.25) | rot / trans (s=1) | rot / trans (s=2) |
+| --- | --- | --- | --- |
+| `hand_eye_axxb` | 0.144 / 0.793 | 0.62 / 3.14 | 1.11 / 6.06 |
+| `camera_to_base_closed_loop_single` | 0.625 / 5.35 | 2.27 / 19.7 | 4.64 / 39.9 |
+| `camera_to_base_closed_loop_mean` | 0.129 / 1.23 | 0.546 / 4.72 | 1.05 / 10.1 |
+| `camera_to_base_axxb` | 0.129 / 1.24 | 0.565 / 4.96 | 1.08 / 9.01 |
+<!-- END generated: noise_robustness tables -->
+
 ## Deferred
 
-- The noise-robustness sweep is Issue
-  [#10](https://github.com/yohei1126/so101-classical-control/issues/10). Nothing
-  in the current tests injects noise, in either direction.
 - Image-based marker detection — camera intrinsics `K`, distortion, ArUco,
   `solvePnP`, 640x480 rendering — is deferred to Issue
   [#20](https://github.com/yohei1126/so101-classical-control/issues/20) and is not
