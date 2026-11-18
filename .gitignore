@@ -23,3 +23,10 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Sweep artifacts: only small summaries are committed, raw dumps are regenerated
+results/*
+!results/README.md
+!results/.gitkeep
+!results/noise_robustness_summary.csv
+!results/noise_robustness.png

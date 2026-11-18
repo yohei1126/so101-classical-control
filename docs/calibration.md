@@ -326,11 +326,100 @@ linear least squares. The **role-level approximation** phrase above is the
 existing one from [cameras.md](cameras.md). This section introduces no eponym for
 the camera-to-base step.
 
+## Noise-robustness sweep (#10)
+
+Source: Issue
+[#10](https://github.com/yohei1126/so101-classical-control/issues/10).
+`src/so101_classical_control/eval/noise_robustness.py` measures how the two
+calibrations degrade under synthetic Gaussian noise. It only calls the existing
+solvers; it does not modify them, does not import OpenCV, does not detect a
+marker in an image, and does not run inverse kinematics. The noise lives on the
+L01-L02 quantities only: joint angles and ground-truth poses.
+
+### Noise model
+
+Level `s` is dimensionless:
+
+- **joint** noise: `s` degrees of standard deviation per arm joint (the five arm
+  joints; the gripper does not move `gripperframe` and is not perturbed);
+- **marker** rotation noise: `s` degrees per axis;
+- **marker** translation noise: `5 s` millimetres per axis.
+
+A marker pose `T` is perturbed on the right, `T @ pose(R_delta, t_delta)`, so the
+noise is expressed in the measured frame. A rotation delta is the Rodrigues
+rotation of a rotation vector with iid Gaussian components; the zero vector maps
+to the identity. A source switches one side on and keeps the other exact:
+`joint`, `marker`, or `both`. Level zero is run once as source `none`.
+
+### Grid
+
+- Noise levels `s`: `0`, `0.1`, `0.25`, `0.5`, `1.0`, `2.0`.
+- Pose counts `N`: `6`, `12`, `24`; each uses the first `N` of the 24 MuJoCo
+  ground-truth configurations.
+- Trials: 50 per cell.
+
+Ground truth is collected once from `SimBackend`: the arm is commanded to each of
+the 24 configurations (configuration seed `20261114`, joint-limit margin `1e-2`
+rad, as in the tests), settled with `step(1.0)`, and the reached joint positions
+plus the camera and site poses are recorded. The DH forward kinematics must
+reproduce the recorded `gripperframe` pose at `1e-6` m / `1e-6` rad, so the
+joint-noise path is anchored to MuJoCo.
+
+### Methods
+
+- `hand_eye_axxb` — wrist eye-in-hand `A X = X B` (Issue #8), with the camera-side
+  pose estimated by detecting the static `desk_marker`;
+- `camera_to_base_closed_loop_single` — one configuration of the camera-to-base
+  closed-loop equation (Issue #9);
+- `camera_to_base_closed_loop_mean` — the per-pose closed-loop estimates
+  aggregated by the chordal L2 mean of the rotations and the arithmetic mean of
+  the translations; an aggregate, not a new solver;
+- `camera_to_base_axxb` — the fixed-frame `A X = X B` pairing (Issue #9).
+
+### Metric
+
+The rotation error is the angle of `R_est.T @ R_gt` in degrees, computed with
+the well-conditioned `arctan2(||vee(R - R^T)|| / 2, (trace - 1) / 2)` form, for
+the same reason as `tests/test_handeye_axxb.py`: `arccos` loses about half the
+digits near zero. The translation error is the Euclidean norm of the translation
+difference in millimetres.
+
+### Reproducibility
+
+Every cell gets its own generator,
+`np.random.default_rng([seed, source_index, level_index, num_poses, trial])`,
+so a cell is reproducible independently of execution order. A solver
+`ValueError` is recorded as `status="solver_error"` with NaN errors instead of
+aborting the sweep.
+
+### Command and results policy
+
+```bash
+uv run python -m so101_classical_control.eval.noise_robustness \
+    --output-dir results --trials 50 --seed 20261118
+```
+
+`--quick` gives a fast smoke run (5 trials, pose counts `(6, 24)`). The default
+run is deterministic given the seed `20261118`. It writes two CSVs and a PNG under
+`results/`: the raw per-trial CSV is regenerated and gitignored, while the
+summary CSV and the PNG are committed. See [../results/README.md](../results/README.md)
+for the column meanings, units, and the measured medians.
+
+At source `both`, level `1.0`, pose count `N = 24`, the committed summary gives
+the following median errors (from `results/noise_robustness_summary.csv`):
+
+| Method | Rotation error (deg) | Translation error (mm) |
+| --- | --- | --- |
+| `hand_eye_axxb` | 0.567 | 2.825 |
+| `camera_to_base_closed_loop_single` | 2.459 | 20.562 |
+| `camera_to_base_closed_loop_mean` | 0.511 | 4.588 |
+| `camera_to_base_axxb` | 0.490 | 4.843 |
+
+These are simulation results from MuJoCo ground-truth poses with synthetic
+Gaussian noise, not real-robot measurements.
+
 ## Deferred
 
-- The noise-robustness sweep is Issue
-  [#10](https://github.com/yohei1126/so101-classical-control/issues/10). Nothing
-  in the current tests injects noise, in either direction.
 - Image-based marker detection — camera intrinsics `K`, distortion, ArUco,
   `solvePnP`, 640x480 rendering — is deferred to Issue
   [#20](https://github.com/yohei1126/so101-classical-control/issues/20) and is not
