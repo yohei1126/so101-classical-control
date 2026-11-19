@@ -337,17 +337,17 @@ Source `both`, cell pose count N = 24, 50 trials per cell; `camera_to_base_close
 
 | Method | num_poses | median rotation deg | median translation mm | p95 rotation deg | p95 translation mm |
 | --- | --- | --- | --- | --- | --- |
-| `hand_eye_axxb` | 24 | 0.62 | 3.14 | 0.977 | 5.1 |
-| `camera_to_base_closed_loop_single` | 1 | 2.27 | 19.7 | 4.4 | 42.9 |
-| `camera_to_base_closed_loop_mean` | 24 | 0.546 | 4.72 | 0.885 | 7.66 |
-| `camera_to_base_axxb` | 24 | 0.565 | 4.96 | 0.938 | 8.07 |
+| `hand_eye_axxb` | 24 | 0.61 | 3.17 | 1.01 | 5.09 |
+| `camera_to_base_closed_loop_single` | 1 | 2.27 | 18.6 | 4.4 | 39.3 |
+| `camera_to_base_closed_loop_mean` | 24 | 0.546 | 4.42 | 0.882 | 7.75 |
+| `camera_to_base_axxb` | 24 | 0.562 | 4.37 | 0.936 | 8.15 |
 
 | Method | rot / trans (s=0.25) | rot / trans (s=1) | rot / trans (s=2) |
 | --- | --- | --- | --- |
-| `hand_eye_axxb` | 0.144 / 0.793 | 0.62 / 3.14 | 1.11 / 6.06 |
-| `camera_to_base_closed_loop_single` | 0.625 / 5.35 | 2.27 / 19.7 | 4.64 / 39.9 |
-| `camera_to_base_closed_loop_mean` | 0.129 / 1.23 | 0.546 / 4.72 | 1.05 / 10.1 |
-| `camera_to_base_axxb` | 0.129 / 1.24 | 0.565 / 4.96 | 1.08 / 9.01 |
+| `hand_eye_axxb` | 0.142 / 0.793 | 0.61 / 3.17 | 1.09 / 6.09 |
+| `camera_to_base_closed_loop_single` | 0.625 / 4.69 | 2.27 / 18.6 | 4.64 / 35.6 |
+| `camera_to_base_closed_loop_mean` | 0.13 / 1.11 | 0.546 / 4.42 | 1.05 / 8.75 |
+| `camera_to_base_axxb` | 0.128 / 1.16 | 0.562 / 4.37 | 1.08 / 9.7 |
 <!-- END generated: noise_robustness tables -->
 
 ## Deferred
