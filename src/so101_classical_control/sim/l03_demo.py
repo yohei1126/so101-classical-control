@@ -14,8 +14,9 @@ Run it as::
         --out results/l03_sim/
 
 How-to lives in ``--help``, not in a document. Rendering is off by default and
-the scenarios are headless; ``--render`` is an optional hook that writes an mp4
-and needs a working OpenGL backend.
+the scenarios are headless; ``--render`` is an optional hook that writes each
+scenario's recorded ``top_cam`` frames to an mp4 and needs a working OpenGL
+backend.
 
 Per-frame CSV
 -------------
@@ -133,6 +134,16 @@ SCENARIOS: Final[tuple[str, ...]] = (
 FRAME_DT: Final[float] = 0.02
 #: Simulated seconds to settle a position actuator before recording a frame.
 SETTLE_S: Final[float] = 1.0
+#: Frames per second of a rendered mp4; one frame per logged CSV row.
+VIDEO_FPS: Final[int] = 20
+#: Inset of the commanded ``fk_sweep`` endpoints from ``ctrlrange``, radians.
+#: MuJoCo soft joint limits can let a position-controlled joint settle slightly
+#: past ``jnt_range`` when the actuator is commanded to the exact ``ctrlrange``
+#: endpoint (observed overshoot 6.13e-6 to 2.60e-4 rad on the Issue #30 run).
+#: 1e-3 rad is larger than that overshoot and larger than the ctrlrange vs
+#: jnt_range float mismatch, so settled ``qpos`` stays inside ``jnt_range``
+#: without loosening the limit check.
+FK_SWEEP_ENDPOINT_INSET: Final[float] = 1e-3
 #: Half-extents of the scene's sponge and paper, metres, used by the task test.
 SPONGE_HALF_EXTENTS: Final[tuple[float, float]] = (0.045, 0.03)
 PAPER_HALF_EXTENTS: Final[tuple[float, float]] = (0.06, 0.045)
@@ -226,12 +237,13 @@ def _interpolate(start: np.ndarray, end: np.ndarray, steps: int) -> list[np.ndar
 class _Recorder:
     """Write one CSV row per recorded frame."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, frames: list[np.ndarray] | None = None) -> None:
         self._handle = path.open("w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._handle, lineterminator="\n")
         self._writer.writerow(CSV_HEADER)
         self._frame = 0
         self.rows = 0
+        self._frames = frames
 
     def record(self, backend: SimBackend, positions: dict[str, float], note: str) -> None:
         """Record the current settled state of ``backend`` with ``note``."""
@@ -257,6 +269,8 @@ class _Recorder:
         )
         self._frame += 1
         self.rows += 1
+        if self._frames is not None:
+            self._frames.append(backend.get_camera_image("top_cam"))
 
     def close(self) -> None:
         """Flush and close the CSV."""
@@ -302,15 +316,24 @@ def _workspace_configurations(limits: Sequence[tuple[float, float]]) -> list[np.
 # ---------------------------------------------------------------------------
 
 
-def _scenario_fk_sweep(backend: SimBackend, out: Path, config: SettleConfig) -> dict[str, str]:
+def _scenario_fk_sweep(
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
+) -> dict[str, str]:
     """Sweep the arm joints one at a time and record the gripper workspace."""
     ctrl = _ctrl_limits()
     base_angles = _read_angles(backend.read_joint_positions())
 
-    with _Recorder(out / "fk_sweep.csv") as recorder:
+    with _Recorder(out / "fk_sweep.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
         for joint_index, name in enumerate(ARM_JOINT_NAMES):
             low, high = ctrl[name]
+            # Command an inset strictly inside the range: the exact endpoints
+            # settle past ``jnt_range`` against MuJoCo's soft joint limits.
+            low += FK_SWEEP_ENDPOINT_INSET
+            high -= FK_SWEEP_ENDPOINT_INSET
             for value in np.linspace(low, high, 7):
                 target = base_angles.copy()
                 target[joint_index] = float(min(max(value, low), high))
@@ -319,13 +342,18 @@ def _scenario_fk_sweep(backend: SimBackend, out: Path, config: SettleConfig) -> 
     return {"csv": "fk_sweep.csv"}
 
 
-def _scenario_ik_reach(backend: SimBackend, out: Path, config: SettleConfig) -> dict[str, str]:
+def _scenario_ik_reach(
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
+) -> dict[str, str]:
     """Reach targets obtained from FK, then refuse one far target without moving."""
     limits = _arm_limits()
     reached = 0
     refused_hold = False
 
-    with _Recorder(out / "ik_reach.csv") as recorder:
+    with _Recorder(out / "ik_reach.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
         for index, angles in enumerate(_workspace_configurations(limits)):
             seed = _read_angles(backend.read_joint_positions())
@@ -353,7 +381,12 @@ def _scenario_ik_reach(backend: SimBackend, out: Path, config: SettleConfig) -> 
     return {"reached": str(reached), "refusal_held": str(refused_hold).lower()}
 
 
-def _scenario_singularity(backend: SimBackend, out: Path, config: SettleConfig) -> dict[str, str]:
+def _scenario_singularity(
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
+) -> dict[str, str]:
     """Pass near a low-manipulability SO-101 configuration and record the measure."""
     limits = _arm_limits()
     start_angles = _read_angles(backend.read_joint_positions())
@@ -363,7 +396,7 @@ def _scenario_singularity(backend: SimBackend, out: Path, config: SettleConfig) 
     near_singular = _clamp_arm(np.array([0.0, -0.5, -1.06, 0.0, 0.0]), limits)
     minimum = np.inf
 
-    with _Recorder(out / "singularity.csv") as recorder:
+    with _Recorder(out / "singularity.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
         for step_angles in _interpolate(start_angles, near_singular, 6):
             positions = _drive(backend, _arm_targets(step_angles), config)
@@ -378,7 +411,12 @@ def _scenario_singularity(backend: SimBackend, out: Path, config: SettleConfig) 
     return {"min_manipulability": _format(minimum)}
 
 
-def _scenario_damped_ik(backend: SimBackend, out: Path, config: SettleConfig) -> dict[str, str]:
+def _scenario_damped_ik(
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
+) -> dict[str, str]:
     """Drive damped pseudo-inverse IK toward a reachable target, logging the null-space part."""
     limits = _arm_limits()
     target = forward_kinematics(np.array([0.3, -0.2, 0.4, 1.2, 0.0]))
@@ -386,7 +424,7 @@ def _scenario_damped_ik(backend: SimBackend, out: Path, config: SettleConfig) ->
     steps = 0
     final_error = float("nan")
 
-    with _Recorder(out / "damped_ik.csv") as recorder:
+    with _Recorder(out / "damped_ik.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
         for _ in range(12):
             solution = reach_target_pose(target, q0=current, joint_limits=limits)
@@ -410,7 +448,10 @@ def _scenario_damped_ik(backend: SimBackend, out: Path, config: SettleConfig) ->
 
 
 def _scenario_camera_to_base(
-    backend: SimBackend, out: Path, config: SettleConfig
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
 ) -> dict[str, str]:
     """Map a known desk point from the top-camera frame into the base frame and compare."""
     # The desk marker is a static site with identity orientation, so its pose in
@@ -430,7 +471,7 @@ def _scenario_camera_to_base(
     located = locate_sponge_in_base_frame(point_in_camera, T_base_cam=estimated)
     residual = float(np.linalg.norm(located - desk_marker[:3, 3]))
 
-    with _Recorder(out / "camera_to_base.csv") as recorder:
+    with _Recorder(out / "camera_to_base.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
         recorder.record(
             backend, backend.read_joint_positions(), f"point_residual_m={_format(residual)}"
@@ -482,7 +523,10 @@ def _write_outcome(
 
 
 def _scenario_pick_and_place(
-    backend: SimBackend, out: Path, config: SettleConfig
+    backend: SimBackend,
+    out: Path,
+    config: SettleConfig,
+    frames: list[np.ndarray] | None = None,
 ) -> dict[str, str]:
     """Attempt the sponge-to-paper pick and place and report the outcome honestly.
 
@@ -500,7 +544,7 @@ def _scenario_pick_and_place(
     start_time = backend.time_s
     notes: list[str] = []
 
-    with _Recorder(out / "pick_and_place.csv") as recorder:
+    with _Recorder(out / "pick_and_place.csv", frames) as recorder:
         recorder.record(backend, backend.read_joint_positions(), "start")
 
         backend.command_joint_targets({"gripper": release_object()})
@@ -563,7 +607,12 @@ def _scenario_pick_and_place(
 
 
 _SCENARIO_FUNCTIONS: Final[
-    dict[str, Callable[[SimBackend, Path, SettleConfig], dict[str, str]]]
+    dict[
+        str,
+        Callable[
+            [SimBackend, Path, SettleConfig, list[np.ndarray] | None], dict[str, str]
+        ],
+    ]
 ] = {
     "fk_sweep": _scenario_fk_sweep,
     "ik_reach": _scenario_ik_reach,
@@ -581,11 +630,16 @@ def run_scenario(
     config: SettleConfig | None = None,
     width: int = 320,
     height: int = 240,
+    frames: list[np.ndarray] | None = None,
 ) -> dict[str, str]:
     """Run one scenario headless and return a small summary mapping.
 
     ``name`` is one of :data:`SCENARIOS`. Raises ``ValueError`` for an unknown
     name. The CSV is written under ``out``; the directory is created if needed.
+
+    When ``frames`` is a list, the ``top_cam`` image of every recorded frame is
+    appended to it in CSV-row order, so the caller can write a video of the same
+    run. Passing ``None`` (the default) skips rendering entirely.
     """
     if name not in _SCENARIO_FUNCTIONS:
         raise ValueError(f"unknown scenario {name!r}; expected one of {', '.join(SCENARIOS)}")
@@ -593,7 +647,7 @@ def run_scenario(
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     with SimBackend(width=width, height=height) as backend:
-        return _SCENARIO_FUNCTIONS[name](backend, out, config)
+        return _SCENARIO_FUNCTIONS[name](backend, out, config, frames)
 
 
 # ---------------------------------------------------------------------------
@@ -653,28 +707,27 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--render",
         action="store_true",
-        help="also render an mp4 per scenario (needs OpenGL; off by default)",
+        help=(
+            "also write an mp4 per scenario from that scenario's recorded top_cam "
+            "frames, one per CSV row (needs OpenGL and imageio; off by default)"
+        ),
     )
     parser.add_argument("--width", type=int, default=320, help="render width (default: 320)")
     parser.add_argument("--height", type=int, default=240, help="render height (default: 240)")
     return parser
 
 
-def _render_video(name: str, out: Path, width: int, height: int) -> None:
-    """Render a short mp4 of ``name``'s scene (optional hook).
+def _render_video(name: str, out: Path, frames: Sequence[np.ndarray]) -> None:
+    """Write ``frames``, the recorded ``top_cam`` images of ``name``, to ``{name}.mp4``.
 
-    This is a rendering convenience only. It is never called unless ``--render``
-    is given, and it raises ``ImportError`` when the video writer or the OpenGL
-    backend is unavailable instead of failing silently.
+    One frame per logged CSV row, so the video shows that scenario's commanded
+    trajectory. It is never called unless ``--render`` is given, and it raises
+    ``ImportError`` when the video writer is unavailable instead of failing
+    silently.
     """
     import imageio.v2 as imageio
 
-    with SimBackend(width=width, height=height) as backend:
-        frames = []
-        for _ in range(8):
-            backend.step(0.05)
-            frames.append(backend.get_camera_image("top_cam"))
-    writer = imageio.get_writer(out / f"{name}.mp4", fps=20)
+    writer = imageio.get_writer(out / f"{name}.mp4", fps=VIDEO_FPS)
     try:
         for frame in frames:
             writer.append_data(frame)
@@ -691,13 +744,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     names = SCENARIOS if arguments.scenario == "all" else (arguments.scenario,)
     for name in names:
         start = time.time()
+        frames: list[np.ndarray] | None = [] if arguments.render else None
         summary = run_scenario(
-            name, out, config=config, width=arguments.width, height=arguments.height
+            name,
+            out,
+            config=config,
+            width=arguments.width,
+            height=arguments.height,
+            frames=frames,
         )
         elapsed = time.time() - start
         print(f"[l03_demo] {name}: {elapsed:.1f}s {summary}")
-        if arguments.render:
-            _render_video(name, out, arguments.width, arguments.height)
+        if frames is not None:
+            _render_video(name, out, frames)
     return 0
 
 
