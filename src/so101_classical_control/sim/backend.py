@@ -68,6 +68,12 @@ class SimBackend(RobotBackend):
         if BASE_SITE not in self._site_id:
             raise ValueError(f"scene is missing the base site {BASE_SITE!r}")
 
+        self._body_id: dict[str, int] = {}
+        for body_id in range(self._model.nbody):
+            body_name = mujoco.mj_id2name(self._model, mujoco.mjtObj.mjOBJ_BODY, body_id)
+            if body_name is not None:
+                self._body_id[body_name] = body_id
+
         # Populate derived quantities (Cartesian poses of cameras, sites, geoms, and
         # lights) so the pose getters are valid before the first ``step`` call.
         mujoco.mj_forward(self._model, self._data)
@@ -141,6 +147,30 @@ class SimBackend(RobotBackend):
         world_pose = pose(
             self._data.site_xmat[site_id].reshape(3, 3),
             self._data.site_xpos[site_id],
+        )
+        return self._in_base_frame(world_pose)
+
+    def get_body_pose(self, body: str) -> np.ndarray:
+        """Pose of ``body`` in the ``baseframe`` frame (simulation only).
+
+        This getter is deliberately **not** part of :class:`RobotBackend`: it
+        exists so a simulation demo can read the pose of scene bodies such as
+        ``sponge`` and ``paper`` that have no MJCF ``site``. It has no hardware
+        meaning. Unknown body names raise ``KeyError``, and the result is a
+        ``(4, 4)`` float64 pose whose rotation is the body frame's.
+        """
+        self._ensure_open()
+        try:
+            body_id = self._body_id[body]
+        except KeyError:
+            available = ", ".join(sorted(name for name in self._body_id if name)) or "none"
+            raise KeyError(
+                f"unknown body {body!r}; available bodies: {available}"
+            ) from None
+        self._forward()
+        world_pose = pose(
+            self._data.xmat[body_id].reshape(3, 3),
+            self._data.xpos[body_id],
         )
         return self._in_base_frame(world_pose)
 

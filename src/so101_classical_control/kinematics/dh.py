@@ -75,6 +75,7 @@ from .transforms import compose_se3_body, pose, rx, rz
 
 __all__ = [
     "ARM_JOINT_NAMES",
+    "arm_joint_angles",
     "SO101_DH_PARAMS",
     "SO101_T_BASE_TO_0",
     "SO101_T_N_TO_EE",
@@ -161,7 +162,7 @@ def dh_transform(a: float, alpha: float, d: float, theta: float) -> np.ndarray:
     return compose_se3_body(along_z, along_x)
 
 
-def _arm_angles(q: Sequence[float] | Mapping[str, float]) -> tuple[float, ...]:
+def arm_joint_angles(q: Sequence[float] | Mapping[str, float]) -> tuple[float, ...]:
     """Return the five arm angles in :data:`ARM_JOINT_NAMES` order.
 
     A mapping must contain every arm joint; a ``gripper`` entry is accepted and
@@ -213,7 +214,7 @@ def forward_kinematics(q: Sequence[float] | Mapping[str, float]) -> np.ndarray:
     The returned ``(4, 4)`` float64 homogeneous transform is
     ``T_BASE_TO_0 @ A_1 ... A_5 @ T_N_TO_EE``.
     """
-    angles = _arm_angles(q)
+    angles = arm_joint_angles(q)
     transform = SO101_T_BASE_TO_0.copy()
     for (a, alpha, d, theta_offset), angle in zip(
         SO101_DH_PARAMS, angles, strict=True
