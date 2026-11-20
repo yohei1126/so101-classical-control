@@ -5,6 +5,7 @@ description = "Classical control, kinematics, and calibration for the SO-101 rob
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "modern-robotics==1.1.1",
     "mujoco-core[rendering]==4.0.1",
 ]
 

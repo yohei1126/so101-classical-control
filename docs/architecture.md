@@ -4,7 +4,7 @@
 
 All source code is located under `src/so101_classical_control/`. The repository contains eight subpackages:
 
-- `kinematics` — SO(3)/SE(3) transform utilities and DH forward kinematics; arm inverse kinematics is not implemented yet.
+- `kinematics` — SO(3)/SE(3) transform utilities, DH and product-of-exponentials forward kinematics, planar 2R closed-form IK, and numerical damped-pseudo-inverse IK for the five arm joints.
 - `calibration` — Hand-eye calibration from ground-truth poses, in both directions: eye-in-hand `A X = X B` and camera-to-base (eye-to-hand). Joint calibration is not implemented yet.
 - `perception` — Perception utilities such as pose estimation and marker detection.
 - `planning` — Motion and grasp planning interfaces.
@@ -14,6 +14,8 @@ All source code is located under `src/so101_classical_control/`. The repository 
 - `eval` — Evaluation metrics and experiment runners.
 
 Three of the eight subpackages (`perception`, `planning`, and `control`) are currently scaffold stubs. Specific APIs, classes, command-line interfaces, or features in those packages are not yet implemented.
+
+A thin goal-level layer sits above the means libraries: `src/so101_classical_control/goals.py`. Public names there describe the task (for example `locate_gripper_from_joint_angles`, `reach_target_pose`, `locate_sponge_in_base_frame`) and call existing helpers in `kinematics/` and `calibration/` plus the `modern_robotics` package. Each public function's docstring cites a Modern Robotics section, the matching lecture, and the means it calls. This is a module of the top-level package, not a ninth subpackage.
 
 The `eval/` subpackage is no longer a stub:
 - `src/so101_classical_control/eval/noise_robustness.py` is the Issue #10 noise-robustness sweep. It collects ground-truth poses once from `SimBackend`, injects synthetic Gaussian noise on joint angles and marker poses, calls the existing eye-in-hand and camera-to-base solvers unchanged, and writes a raw trials CSV, a committed summary CSV, and a committed PNG under `results/`. It is runnable as `python -m so101_classical_control.eval.noise_robustness`; the package import stays light and `matplotlib` is imported only inside the plotting function. See [calibration.md](calibration.md) and [../results/README.md](../results/README.md).
@@ -28,13 +30,16 @@ The `kinematics/` subpackage now contains transform utilities and forward kinema
 - The L02 exercise notebook labels the Z-axis angle "roll" and the X-axis angle "yaw" for the same Z-Y-X sequence. This repository uses the standard convention (roll about X, yaw about Z) and only swaps those two *names*; the multiplication order is unchanged.
 - `src/so101_classical_control/kinematics/dh.py` (re-exported from `kinematics/__init__.py`) provides standard (classical) DH forward kinematics for the five arm joints, with the MuJoCo site `gripperframe` as the end effector. The fixed base and tool transforms are kept separate from the five DH rows. The constants are derived from the vendored `so101.xml`, and `tests/test_dh_fk.py` checks the result against the MuJoCo site pose. See [kinematics.md](kinematics.md) for the convention, the table, and the geometry notes.
 - `src/so101_classical_control/kinematics/camera_frames.py` (re-exported from `kinematics/__init__.py`) provides `mujoco_camera_to_opencv(transform)`, the numpy-only pose conversion from the MuJoCo camera convention (look along `-Z`, `+Y` up) to the OpenCV/optical convention (look along `+Z`, `+Y` down). It does not import `mujoco`, and there is no intrinsic matrix `K` yet. See [cameras.md](cameras.md).
-- Arm inverse kinematics is still not implemented (a later phase).
+- `src/so101_classical_control/kinematics/poe.py` provides the home pose `M` and space-frame screws of the same five-joint arm, derived from the DH table at `q = 0`, and thin wrappers over `modern_robotics` (`FKinSpace`, `JacobianSpace`, `JacobianBody`, `Adjoint`).
+- `src/so101_classical_control/kinematics/planar.py` provides planar 2R closed-form forward kinematics, the analytical positional Jacobian, reachability, and analytical IK.
+- `src/so101_classical_control/kinematics/inverse.py` provides damped least-squares / pseudo-inverse inverse kinematics and a null-space projector for the five arm joints.
 
 The `sim/` subpackage contains the MuJoCo simulation scene and backend:
 - `scene.py` providing `scene_xml_path()`, which returns the path to the sponge-to-paper MuJoCo scene.
 - Vendored MuJoCo Menagerie `robotstudio_so101` assets under `src/so101_classical_control/sim/assets/robotstudio_so101/` (pinned upstream commit `370c43965323c0944b433b202aac5058b5f907a9`, Apache License 2.0, recorded in `src/so101_classical_control/sim/assets/PROVENANCE.md`).
 - The local scene file `src/so101_classical_control/sim/assets/sponge_paper_scene.xml`.
-- `SimBackend` (`src/so101_classical_control/sim/backend.py`, exported from `sim/__init__.py`), a working MuJoCo implementation of `RobotBackend` that drives the sponge-to-paper scene. `MjModel` and `MjData` stay private. A renderer is created lazily on the first `get_camera_image` call and released by `close()`. The scene defines the desk-fixed camera `top_cam` and the vendored arm-mounted `wrist_cam`, plus the marker sites `desk_marker` and `ee_marker`. See [cameras.md](cameras.md).
+- `SimBackend` (`src/so101_classical_control/sim/backend.py`, exported from `sim/__init__.py`), a working MuJoCo implementation of `RobotBackend` that drives the sponge-to-paper scene. `MjModel` and `MjData` stay private. A renderer is created lazily on the first `get_camera_image` call and released by `close()`. The scene defines the desk-fixed camera `top_cam` and the vendored arm-mounted `wrist_cam`, plus the marker sites `desk_marker` and `ee_marker`. See [cameras.md](cameras.md). `get_body_pose` is a simulation-only getter on `SimBackend` for scene bodies such as `sponge` and `paper`; it is not part of the abstract `RobotBackend` contract.
+- `src/so101_classical_control/sim/l03_demo.py` is a headless demonstration entry point, runnable as `python -m so101_classical_control.sim.l03_demo`, that drives the goal-level functions on the existing sponge-to-paper scene and writes per-frame CSV files. How-to is in the command's `--help`.
 
 The `real/` subpackage contains hardware interfaces:
 - `RealBackend` (`src/so101_classical_control/real/backend.py`, exported from `real/__init__.py`), a safe stub matching `RobotBackend`. Constructing it performs no hardware, serial, or network access. Operations raise `NotImplementedError`, and `close()` is a no-op.
