@@ -1,5 +1,8 @@
 <mujoco model="plane">
-  <compiler angle="radian"/>
+  <!-- meshdir is resolved relative to this XML file's directory (docs/crosscheck/),
+       the same relative-to-scene-file convention as sponge_paper_scene.xml, so
+       the model loads from the repo root without copying the vendored STLs. -->
+  <compiler angle="radian" meshdir="../../src/so101_classical_control/sim/assets/robotstudio_so101/assets"/>
 
   <option timestep="0.005" impratio="10" integrator="implicitfast" cone="elliptic">
     <flag eulerdamp="disable"/>
@@ -48,9 +51,7 @@
   <asset>
     <texture type="skybox" colorspace="auto" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
     <texture type="2d" colorspace="auto" name="groundplane" builtin="checker" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3" width="300" height="300"/>
-    <texture type="2d" colorspace="linear" name="table/small_meta_table_diffuse" file="small_meta_table_diffuse.png"/>
     <material name="groundplane" texture="groundplane" texrepeat="5 5" texuniform="true" reflectance="0.2"/>
-    <material name="table/table" texture="table/small_meta_table_diffuse"/>
     <material name="robot/base_motor_holder_so101_v1_material" rgba="1 0.82 0.12 1"/>
     <material name="robot/base_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="robot/sts3215_03a_v1_material" rgba="0.1 0.1 0.1 1"/>
@@ -64,8 +65,10 @@
     <material name="robot/wrist_roll_pitch_so101_v2_material" rgba="1 0.82 0.12 1"/>
     <material name="robot/wrist_roll_follower_so101_v1_material" rgba="1 0.82 0.12 1"/>
     <material name="robot/moving_jaw_so101_v1_material" rgba="1 0.82 0.12 1"/>
-    <mesh name="table/tabletop" content_type="model/obj" file="tabletop.obj"/>
-    <mesh name="table/tablelegs" content_type="model/obj" file="tablelegs.obj"/>
+    <!-- The upstream aloha-table assets (tabletop.obj, tablelegs.obj,
+         small_meta_table_diffuse.png) are not vendored in this repository, so
+         the file-backed table texture, material, meshes, and visual geoms are
+         dropped; the table keeps its box collision geom (table/table_collision). -->
     <mesh name="robot/waveshare_mounting_plate_so101_v2" content_type="model/stl" file="waveshare_mounting_plate_so101_v2.stl" maxhullvert="128"/>
     <mesh name="robot/sts3215_03a_v1" content_type="model/stl" file="sts3215_03a_v1.stl" maxhullvert="128"/>
     <mesh name="robot/motor_holder_so101_base_v1" content_type="model/stl" file="motor_holder_so101_base_v1.stl" maxhullvert="128"/>
@@ -95,8 +98,6 @@
     <light name="left_side_light" castshadow="false" pos="-0.8 -0.2 1.2" dir="0.851594 0.212899 -0.479022" diffuse="0.35 0.35 0.35" specular="0.1 0.1 0.1" type="directional"/>
     <light name="right_side_light" castshadow="false" pos="0.8 -0.2 1.2" dir="-0.851594 0.212899 -0.479022" diffuse="0.35 0.35 0.35" specular="0.1 0.1 0.1" type="directional"/>
     <body name="table/aloha_table" pos="0 0 0.75">
-      <geom name="table/tabletop" pos="0 0 -0.75" quat="0.707107 0 0 0.707107" type="mesh" contype="0" conaffinity="0" group="2" material="table/table" mesh="table/tabletop"/>
-      <geom name="table/tablelegs" pos="0 0 -0.75" quat="0.707107 0 0 0.707107" type="mesh" contype="0" conaffinity="0" group="2" material="table/table" mesh="table/tablelegs"/>
       <geom name="table/table_collision" size="0.61 0.37 0.1" pos="0 0 -0.1" type="box" group="3" solref="0.01"/>
     </body>
     <frame pos="0 -0.27 0.75" quat="0.707107 0 0 0.707107">
